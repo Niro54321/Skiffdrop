@@ -41,6 +41,7 @@ class Settings:
     firewall_asked: bool = False
     theme: str = "system"        # system / dark / light
     lang: str = ""               # empty = the Windows display language
+    quiet_networks: list = field(default_factory=list)  # networks whose warning you closed
     path: Path | None = field(default=None, repr=False, compare=False)
 
     @classmethod

@@ -182,17 +182,21 @@ def downloads_dir() -> Path:
     return Path.home() / "Downloads"
 
 
-def network_category(if_index: int) -> str:
-    """"Private", "Public", "DomainAuthenticated" or "" (unknown) for an adapter."""
+def network_profile(if_index: int) -> tuple[str, str]:
+    """("Private" / "Public" / "DomainAuthenticated" / "", the network's name) for an adapter."""
     if not if_index or sys.platform != "win32":
-        return ""
+        return "", ""
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                              f"(Get-NetConnectionProfile -InterfaceIndex {int(if_index)}).NetworkCategory"],
-                             capture_output=True, text=True, timeout=15, creationflags=NO_WINDOW)
-        return out.stdout.strip().splitlines()[0] if out.stdout.strip() else ""
+                              f"$p = Get-NetConnectionProfile -InterfaceIndex {int(if_index)} | Select-Object -First 1; "
+                              "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+                              "\"$($p.NetworkCategory)|$($p.Name)\""],
+                             capture_output=True, timeout=15, creationflags=NO_WINDOW)
+        line = out.stdout.decode("utf-8", "replace").strip().splitlines()
+        category, _, name = (line[0] if line else "").partition("|")
+        return category.strip(), name.strip()
     except (OSError, subprocess.SubprocessError):
-        return ""
+        return "", ""
 
 
 RULE = "Skiffdrop"

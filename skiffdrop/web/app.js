@@ -50,7 +50,9 @@ function setStatus(s) {
   state.status = s;
   const el = $('status');
   el.className = 'status ' + (s === 'connected' ? 'on' : s === 'offline' ? 'off' : '');
-  $('statusText').textContent = s === 'connected' ? t('connected', state.pc || 'PC') : t(s);
+  // 'found': the PC answered but this phone isn't paired yet, so just name the PC
+  $('statusText').textContent = s === 'connected' ? t('connected', state.pc || 'PC')
+    : s === 'found' ? (state.pc || 'PC') : t(s);
 }
 
 function sizeText(n) {
@@ -87,14 +89,17 @@ async function api(method, path, body) {
 
 // ------------------------------------------------------------------ pairing
 let key = '';
+let qrCode = '';
 (function readKey() {
   const m = location.hash.match(/k=([A-Za-z0-9_-]{8,64})/);
+  const c = location.hash.match(/c=(\d{6})/);
   if (m) {
     key = m[1];
-    try { sessionStorage.setItem('k', key); } catch { /* ignore */ }
+    qrCode = c ? c[1] : '';
+    try { sessionStorage.setItem('k', key); sessionStorage.setItem('c', qrCode); } catch { /* ignore */ }
     history.replaceState(null, '', location.pathname);  // the key stays out of bookmarks and history
   } else {
-    try { key = sessionStorage.getItem('k') || ''; } catch { key = ''; }
+    try { key = sessionStorage.getItem('k') || ''; qrCode = sessionStorage.getItem('c') || ''; } catch { key = ''; }
   }
 })();
 
@@ -127,14 +132,16 @@ function showPair(me) {
   pinNeeded = !!(me && me.pin);
   $('home').hidden = true;
   $('pair').hidden = false;
-  $('codeRow').hidden = !!key;
+  // From the QR code: the code is already filled in, one tap on Connect is all that's left.
+  $('codeRow').hidden = false;
+  if (qrCode) $('code').value = qrCode;
   $('pinRow').hidden = !pinNeeded;
   $('pairErr').hidden = true;
   $('waiting').hidden = true;
   $('pairForm').hidden = false;
   pairText();
-  if (key && !pinNeeded) pair();
-  else (pinNeeded && key ? $('pin') : $('code')).focus();
+  if (pinNeeded) $('pin').focus();
+  else if (!key) $('code').focus();
 }
 
 function pairError(msg) {
@@ -149,17 +156,18 @@ async function pair() {
   if (pairing) return;
   pairing = true;
   try {
-    const code = key ? '' : $('code').value.replace(/\D/g, '');
+    const code = $('code').value.replace(/\D/g, '');
     const info = deviceInfo();
     $('pairErr').hidden = true;
     const r = await api('POST', '/api/pair', { key, code, pin: $('pin').value, name: info.name, kind: info.kind });
     if (!r.ok) {
       if (r.data.error === 'pin') return pairError(t('badPin'));
       if (r.data.error === 'locked') return pairError(t('locked'));
-      if (key) {  // an old QR code: fall back to typing the code
+      if (key) {  // an old QR code: fall back to typing the code shown on the PC now
         key = '';
-        try { sessionStorage.removeItem('k'); } catch { /* ignore */ }
-        $('codeRow').hidden = false;
+        qrCode = '';
+        $('code').value = '';
+        try { sessionStorage.removeItem('k'); sessionStorage.removeItem('c'); } catch { /* ignore */ }
         pairText();
       }
       return pairError(t('badCode'));
@@ -184,8 +192,9 @@ function showHome() {
   state.view = 'home';
   $('pair').hidden = true;
   $('home').hidden = false;
-  try { sessionStorage.removeItem('k'); } catch { /* ignore */ }
+  try { sessionStorage.removeItem('k'); sessionStorage.removeItem('c'); } catch { /* ignore */ }
   key = '';
+  qrCode = '';
   poll();
 }
 
@@ -553,7 +562,7 @@ async function boot() {
       const me = await api('GET', '/api/me');
       state.pc = me.data.pc || '';
       setStatus(me.data.paired ? 'connected' : 'connecting');
-      if (me.data.paired) showHome(); else { setStatus('connecting'); showPair(me.data); }
+      if (me.data.paired) showHome(); else { setStatus('found'); showPair(me.data); }
       return;
     } catch {
       setStatus('offline');

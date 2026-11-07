@@ -14,16 +14,18 @@ from PySide6.QtCore import QObject, QProcess, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QImageReader
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
-                               QLineEdit, QMenu, QMessageBox, QScrollArea, QSizePolicy, QSpinBox, QSystemTrayIcon,
+                               QLineEdit, QMenu, QScrollArea, QSizePolicy, QSpinBox, QSystemTrayIcon,
                                QVBoxLayout, QWidget)
 
 from . import __version__, netutil
 from . import theme as T
 from . import ui
-from .config import APP, Devices, Settings
+from .config import APP, Devices, Settings, config_dir
+from .history import History
 from .i18n import LANGUAGES, RTL, set_language, tr
 from .server import PAIR_TTL, Hub, Listener, PairRequest, Transfer
-from .ui import (Boat, CodeKeys, DropZone, NativeFrameWindow, QrCode, Row, Speed, TitleBar, Toast, ago, app_icon,
+from .ui import (Ask, Boat, CodeKeys, DropZone, MessageRow, NativeFrameWindow, QrCode, Row, Speed, TitleBar, Toast, ago,
+                 app_icon,
                  button, icon_pixmap, icon_tile, label, panel, png_bytes, set_icon, size_text)
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -278,7 +280,7 @@ class SettingsDialog(QDialog):
     def _set_pin(self) -> None:
         pin = self.pin.text().strip()
         if not (pin.isdigit() and 4 <= len(pin) <= 12):
-            QMessageBox.information(self, "PIN", tr("pin_digits"))
+            Ask.inform(self, "PIN", tr("pin_digits"), tr("ok"), "lock")
             return
         self.main.settings.set_pin(pin)
         self.main.settings.save()
@@ -296,7 +298,7 @@ class SettingsDialog(QDialog):
 
 
 class MainWindow(NativeFrameWindow):
-    net_checked = Signal(str, bool)   # network category, firewall rule exists
+    net_checked = Signal(str, str, bool)   # network category, network name, firewall rule exists
 
     def __init__(self, hub: Hub, settings: Settings, bridge: Bridge, restart=None):
         super().__init__()
@@ -304,6 +306,9 @@ class MainWindow(NativeFrameWindow):
         self._restart = restart
         self.rule_ok = True
         self.category = ""
+        self.network_name = ""
+        self.phone_reached = False
+        self.history = History(settings.path.parent if settings.path else config_dir())
         self.rows: dict[str, Row] = {}
         self.speeds: dict[str, Speed] = {}
         self.shared_rows: dict[str, Row] = {}
@@ -318,7 +323,7 @@ class MainWindow(NativeFrameWindow):
         self.setObjectName("root")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         self.setAcceptDrops(True)
-        self.resize(1080, 860)
+        self.resize(1160, 900)
         self.setMinimumSize(960, 780)
 
         root = QVBoxLayout(self)
@@ -460,40 +465,49 @@ class MainWindow(NativeFrameWindow):
         frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         right.addWidget(frame)
 
+        lists = QHBoxLayout()
+        lists.setSpacing(20)
         tools = QWidget()
         tl = QHBoxLayout(tools)
         tl.setContentsMargins(0, 0, 0, 0)
-        tl.setSpacing(4)
+        b = button(tr("clear"), "ghost", tr("clear_msgs_tip"))
+        b.clicked.connect(self._clear_messages)
+        tl.addWidget(b)
+        frame, c = panel(tr("messages"), tools)
+        empty = QWidget()
+        el = QVBoxLayout(empty)
+        el.setSpacing(8)
+        el.addStretch(1)
+        el.addWidget(icon_tile("text", 40), 0, Qt.AlignmentFlag.AlignHCenter)
+        t = label(tr("no_messages"), "strong")
+        t.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        el.addWidget(t)
+        t = label(tr("no_messages_sub"), "muted", wrap=True)
+        t.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        el.addWidget(t)
+        el.addStretch(1)
+        self.msg_list, self.msg_scroll, self.msg_empty = self._list_well(c, empty)
+        lists.addWidget(frame, 5)
+
+        tools = QWidget()
+        tl = QHBoxLayout(tools)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(2)
         self.total = label("", "meta")
         tl.addWidget(self.total)
-        b = button(tr("open_folder"), "ghost", "", "folder", "text")
+        b = button("", "x", tr("open_folder"), "folder", "text", 16)
         b.clicked.connect(lambda: reveal(self.settings.folder))
         tl.addWidget(b)
-        b = button(tr("clear"), "ghost")
-        b.clicked.connect(self._clear_activity)
+        b = button(tr("clear"), "ghost", tr("clear_files_tip"))
+        b.clicked.connect(self._clear_files)
         tl.addWidget(b)
-        frame, c = panel(tr("activity"), tools)
-        well = QFrame()
-        well.setObjectName("well")
-        wl = QVBoxLayout(well)
-        wl.setContentsMargins(8, 8, 8, 8)
-        self.activity = QVBoxLayout()
-        self.activity.setSpacing(2)
-        self.activity.addStretch(1)
-        aw = QWidget()
-        aw.setLayout(self.activity)
-        self.activity_scroll = QScrollArea()
-        self.activity_scroll.setWidgetResizable(True)
-        self.activity_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.activity_scroll.setWidget(aw)
-        self.activity_scroll.hide()
-        wl.addWidget(self.activity_scroll)
-        self.empty = QWidget()
-        el = QVBoxLayout(self.empty)
+        frame, c = panel(tr("files"), tools)
+        empty = QWidget()
+        el = QVBoxLayout(empty)
         el.setSpacing(8)
         el.addStretch(1)
         el.addWidget(Boat(), 0, Qt.AlignmentFlag.AlignHCenter)
-        et = label(tr("empty_title"), "strong")
+        et = label(tr("empty_title"), "strong", wrap=True)
         et.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         el.addWidget(et)
         es = label(tr("empty_sub"), "muted", wrap=True)
@@ -503,9 +517,9 @@ class MainWindow(NativeFrameWindow):
         self.empty_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         el.addWidget(self.empty_path, 0, Qt.AlignmentFlag.AlignHCenter)
         el.addStretch(1)
-        wl.addWidget(self.empty)
-        c.addWidget(well, 1)
-        right.addWidget(frame, 1)
+        self.file_list, self.file_scroll, self.file_empty = self._list_well(c, empty)
+        lists.addWidget(frame, 6)
+        right.addLayout(lists, 1)
         body.addLayout(right, 1)
 
         # ---------------------------------------------------------- wiring
@@ -522,9 +536,16 @@ class MainWindow(NativeFrameWindow):
         self.notify_timer = QTimer(self)
         self.notify_timer.setSingleShot(True)
         self.notify_timer.timeout.connect(self._notify_received)
+        self.net_timer = QTimer(self)
+        self.net_timer.timeout.connect(self.check_network)  # notices when the network is switched to Private
+        self.net_timer.start(45_000)
         self.load_addresses()
         self.refresh_devices()
         self.refresh_shared()
+        for m in self.history.messages:
+            self._message_row(m)
+        for f in self.history.files:
+            self._file_row(f)
 
     # ---------------------------------------------------------------- frame and tray behaviour
     def showEvent(self, e) -> None:  # noqa: N802
@@ -605,23 +626,35 @@ class MainWindow(NativeFrameWindow):
         a = self.current_address()
 
         def work():
-            cat = netutil.network_category(a.if_index) if a else ""
-            self.net_checked.emit(cat, netutil.firewall_rule_exists())
+            cat, name = netutil.network_profile(a.if_index) if a else ("", "")
+            self.net_checked.emit(cat, name, netutil.firewall_rule_exists())
         threading.Thread(target=work, daemon=True).start()
 
-    def _net_result(self, category: str, rule: bool) -> None:
-        self.category, self.rule_ok = category, rule
-        a = self.current_address()
-        public = category == "Public"
-        self.banner_public.setVisible(public)
-        self.banner_rule.setVisible(not rule)
-        self.banner.setVisible(public or not rule)
-        if public and a:
-            self.banner_text.setText(tr("public", name=a.adapter))
-        elif not rule:
-            self.banner_text.setText(tr("no_rule"))
+    def _net_result(self, category: str, name: str, rule: bool) -> None:
+        self.category, self.network_name, self.rule_ok = category, name, rule
+        self._update_banner()
         if self.dialog:
             self.dialog.refresh()
+
+    def _update_banner(self) -> None:
+        a = self.current_address()
+        public = self.category == "Public"
+        quiet = bool(self.network_name) and self.network_name in self.settings.quiet_networks
+        show = (public or not self.rule_ok) and not quiet and not self.phone_reached
+        self.banner_public.setVisible(public)
+        self.banner_rule.setVisible(not self.rule_ok)
+        self.banner.setVisible(show)
+        if public and a:
+            self.banner_text.setText(tr("public", name=self.network_name or a.adapter))
+        elif not self.rule_ok:
+            self.banner_text.setText(tr("no_rule"))
+
+    def _hide_banner(self) -> None:
+        """You know better: a phone got through, or this network is fine for you."""
+        if self.network_name and self.network_name not in self.settings.quiet_networks:
+            self.settings.quiet_networks.append(self.network_name)
+            self.settings.save()
+        self.banner.hide()
 
     def _banner(self) -> QFrame:
         f = QFrame()
@@ -641,6 +674,9 @@ class MainWindow(NativeFrameWindow):
         recheck = button(tr("check_again"), "link")
         recheck.clicked.connect(self.check_network)
         lay.addWidget(recheck)
+        close = button("", "x", tr("hide_banner"), "close", "text2")
+        close.clicked.connect(self._hide_banner)
+        lay.addWidget(close)
         f.hide()
         return f
 
@@ -655,7 +691,8 @@ class MainWindow(NativeFrameWindow):
         def work():
             netutil.add_firewall_rule(listening_program(), port)
             a = self.current_address()
-            self.net_checked.emit(netutil.network_category(a.if_index) if a else "", netutil.firewall_rule_exists())
+            cat, name = netutil.network_profile(a.if_index) if a else ("", "")
+            self.net_checked.emit(cat, name, netutil.firewall_rule_exists())
         threading.Thread(target=work, daemon=True).start()
         self.settings.firewall_asked = True
         self.settings.save()
@@ -688,9 +725,15 @@ class MainWindow(NativeFrameWindow):
             self.devices_box.addWidget(r)
         self.no_devices.setVisible(not devs)
         self.paired_meta.setText(tr("paired", n=len(devs)) if devs else "")
+        mine = {a.ip for a in getattr(self, "addresses", [])}
+        reached = any(self.hub.online(d) and d.ip and d.ip not in mine and not d.ip.startswith("127.") for d in devs)
+        if reached != self.phone_reached:
+            self.phone_reached = reached
+            self._update_banner()
 
     def _remove_device(self, dev_id: str, name: str) -> None:
-        if QMessageBox.question(self, tr("remove_title"), tr("remove_q", name=name)) == QMessageBox.StandardButton.Yes:
+        if Ask.confirm(self, tr("remove_title"), tr("remove_q", name=name), tr("remove_btn"), tr("cancel"), True,
+                       "phone"):
             self.hub.revoke(dev_id)
 
     # ---------------------------------------------------------------- sharing
@@ -740,7 +783,7 @@ class MainWindow(NativeFrameWindow):
         if text.strip():
             self.hub.send_text(text)
             self.text.clear()
-            self._activity_text(tr("you_sent"), text)
+            self._message_row(self.history.add_message("out", "", text))
 
     def _send_clipboard(self) -> None:
         cb = QGuiApplication.clipboard()
@@ -751,13 +794,88 @@ class MainWindow(NativeFrameWindow):
         text = cb.text()
         if text.strip():
             self.hub.send_text(text)
-            self._activity_text(tr("you_sent"), text)
+            self._message_row(self.history.add_message("out", "", text))
 
-    # ---------------------------------------------------------------- activity
-    def _insert(self, row: Row) -> None:
-        self.activity.insertWidget(0, row)
-        self.empty.hide()
-        self.activity_scroll.show()
+    # ---------------------------------------------------------------- messages and files
+    def _list_well(self, col: QVBoxLayout, empty: QWidget):
+        well = QFrame()
+        well.setObjectName("well")
+        wl = QVBoxLayout(well)
+        wl.setContentsMargins(6, 6, 6, 6)
+        box = QVBoxLayout()
+        box.setSpacing(2)
+        box.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(box)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(holder)
+        scroll.hide()
+        wl.addWidget(scroll)
+        wl.addWidget(empty)
+        col.addWidget(well, 1)
+        return box, scroll, empty
+
+    @staticmethod
+    def _when(t: float) -> str:
+        same_day = time.strftime("%Y%m%d", time.localtime(t)) == time.strftime("%Y%m%d")
+        return time.strftime("%H:%M" if same_day else "%Y-%m-%d %H:%M", time.localtime(t))
+
+    def _put(self, box: QVBoxLayout, scroll: QScrollArea, empty: QWidget, row: QWidget) -> None:
+        box.insertWidget(0, row)  # newest on top
+        empty.hide()
+        scroll.show()
+
+    def _message_row(self, m: dict) -> None:
+        out = m.get("dir") == "out"
+        who = tr("you_sent") if out else tr("dev_sent", dev=m.get("device", ""))
+        when = self._when(m.get("t", time.time())) + (f" · {tr('copied')}" if m.get("copied") else "")
+        text = m.get("text", "")
+        r = MessageRow(who, when, text, out)
+        r.add_button(lambda _=False, s=text: QGuiApplication.clipboard().setText(s), tr("copy"), "copy")
+        one = " ".join(text.split())
+        if one.startswith(("http://", "https://")) and " " not in one:
+            r.add_button(lambda _=False, s=one: QDesktopServices.openUrl(QUrl(s)), tr("open_link"), "external")
+        self._put(self.msg_list, self.msg_scroll, self.msg_empty, r)
+
+    def _clear_messages(self) -> None:
+        self.history.clear_messages()
+        for i in reversed(range(self.msg_list.count())):
+            w = self.msg_list.itemAt(i).widget()
+            if w:
+                w.deleteLater()
+        self.msg_scroll.hide()
+        self.msg_empty.show()
+
+    def _file_sub(self, f: dict) -> tuple[str, str]:
+        who = tr("from_dev", dev=f["device"]) if f["dir"] == "in" else tr("to_dev", dev=f["device"])
+        when = self._when(f.get("t") or time.time())
+        state = f.get("state")
+        if state == "done":  # the arrow already says which way it went
+            gone = f.get("path") and not Path(f["path"]).exists()
+            text = f"{size_text(f['size'])} · {who} · {when}" + (f" · {tr('gone')}" if gone else "")
+            return text, "sub" if gone else "ok"
+        return f"{tr('stopped' if state == 'failed' else 'cancelled')} · {who} · {when}", "bad"
+
+    def _file_buttons(self, r: Row, path: str) -> None:
+        if path and Path(path).exists() and not getattr(r, "_buttons", False):
+            r._buttons = True
+            p = Path(path)
+            r.add_button("", lambda _=False, q=p: os.startfile(str(q)), tr("open"), "external")  # noqa: S606
+            r.add_button("", lambda _=False, q=p: reveal(q), tr("show_tip"), "folder")
+
+    def _file_row(self, f: dict) -> Row:
+        """A finished transfer from the history file."""
+        r = Row(Path(f["path"]).name if f.get("path") and f["dir"] == "in" else f["name"], "",
+                "down" if f["dir"] == "in" else "up")
+        text, state = self._file_sub(f)
+        r.set_sub(text, state)
+        if state != "bad":
+            self._file_buttons(r, f.get("path", ""))
+        self.rows[f["id"]] = r
+        self._put(self.file_list, self.file_scroll, self.file_empty, r)
+        return r
 
     def on_transfer(self, t: Transfer) -> None:
         r = self.rows.get(t.id)
@@ -766,31 +884,33 @@ class MainWindow(NativeFrameWindow):
             r.bar.show()
             self.rows[t.id] = r
             self.speeds[t.id] = Speed()
-            self._insert(r)
-        sp = self.speeds[t.id].add(t.done)
+            self._put(self.file_list, self.file_scroll, self.file_empty, r)
+        if getattr(r, "_logged", False):
+            return
+        sp = self.speeds.setdefault(t.id, Speed()).add(t.done)
         r.bar.setValue(int((t.done / t.size if t.size else 1.0) * 1000))
         who = tr("from_dev", dev=t.device) if t.direction == "in" else tr("to_dev", dev=t.device)
         if t.state == "active":
             speed = f" · {size_text(sp)}/s" if sp > 0 else ""
             r.set_sub(f"{who} · {tr('progress', done=size_text(t.done), total=size_text(t.size))}{speed}")
             return
+        r._logged = True  # finished: write it down once, it stays after a restart
         r.bar.hide()
+        entry = {"id": t.id, "dir": t.direction, "device": t.device, "name": t.name, "path": t.path,
+                 "size": t.size, "t": t.finished or time.time(), "state": t.state}
+        self.history.put_file(entry)
+        text, state = self._file_sub(entry)
+        r.set_sub(text, state)
         secs = max(0.001, (t.finished or time.time()) - t.started)
-        avg = f" · {tr('average', speed=size_text(t.size / secs))}" if t.state == "done" and t.size > 4 << 20 else ""
+        if t.state == "done" and t.size > 4 << 20:
+            r.setToolTip(tr("average", speed=size_text(t.size / secs)))
         if t.state == "done":
-            word = tr("received" if t.direction == "in" else "sent", size=size_text(t.size))
-            r.set_sub(f"{who} · {word}{avg}", "ok")
-        else:
-            r.set_sub(f"{who} · {tr('stopped' if t.state == 'failed' else 'cancelled')}", "bad")
-        if t.state == "done" and t.direction == "in" and t.path and not getattr(r, "_buttons", False):
-            r._buttons = True
-            path = Path(t.path)
-            if path.name != t.name:
-                r.set_title(path.name)
-            r.add_button(tr("open"), lambda _=False, p=path: os.startfile(str(p)))  # noqa: S606
-            r.add_button(tr("show"), lambda _=False, p=path: reveal(p), tr("show_tip"))
-            self.received_batch.append((t.device, path.name))
-            self.notify_timer.start(1500)
+            if t.direction == "in" and t.path and Path(t.path).name != t.name:
+                r.set_title(Path(t.path).name)
+            self._file_buttons(r, t.path)
+            if t.direction == "in":
+                self.received_batch.append((t.device, Path(t.path).name if t.path else t.name))
+                self.notify_timer.start(1500)
 
     def _notify_received(self) -> None:
         batch, self.received_batch = self.received_batch, []
@@ -807,34 +927,23 @@ class MainWindow(NativeFrameWindow):
         if self.settings.copy_text:
             QGuiApplication.clipboard().setText(text)
             copied = True
-        self._activity_text(tr("dev_sent", dev=device.name), text, copied)
+        self._message_row(self.history.add_message("in", device.name, text, copied))
         app = QApplication.instance()
         if self.settings.notify and getattr(app, "tray", None) and not self.isActiveWindow():
             app.tray.showMessage(tr("text_from", dev=device.name), text[:200], app_icon(), 4000)
 
-    def _activity_text(self, who: str, text: str, copied: bool = False) -> None:
-        one = " ".join(text.split())
-        r = Row(one[:300], "", "text")
-        r.set_sub(f"{who} · {time.strftime('%H:%M')}" + (f" · {tr('copied')}" if copied else ""))
-        r.add_button(tr("copy"), lambda _=False, s=text: QGuiApplication.clipboard().setText(s))
-        if one.startswith(("http://", "https://")) and " " not in one:
-            r.add_button(tr("open"), lambda _=False, s=one: QDesktopServices.openUrl(QUrl(s)))
-        self._insert(r)
-
-    def _clear_activity(self) -> None:
+    def _clear_files(self) -> None:
+        """Forgets the list; every file stays where it was saved."""
+        self.history.clear_files()
         for tid, r in list(self.rows.items()):
             t = self.hub.transfers.get(tid)
             if t and t.state == "active":
                 continue
             self.rows.pop(tid).deleteLater()
             self.speeds.pop(tid, None)
-        for i in reversed(range(self.activity.count())):
-            w = self.activity.itemAt(i).widget()
-            if w and w not in self.rows.values():
-                w.deleteLater()
         if not self.rows:
-            self.activity_scroll.hide()
-            self.empty.show()
+            self.file_scroll.hide()
+            self.file_empty.show()
 
     def _tick(self) -> None:
         if self.hub.version != self._last_shared_version:
@@ -904,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         hub.start(os.environ.get("SKIFFDROP_HOST", "0.0.0.0"))  # the tests bind 127.0.0.1
     except OSError as e:
-        QMessageBox.critical(None, "Skiffdrop", f"{tr('server_error')}\n{e}")
+        Ask.inform(None, "Skiffdrop", f"{tr('server_error')}\n{e}", tr("ok"))
         return 1
 
     tray = QSystemTrayIcon(app_icon())

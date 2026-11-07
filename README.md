@@ -5,10 +5,10 @@
 Stop mailing photos to yourself or dropping them in a WhatsApp or Discord chat just to get them onto your PC. Skiffdrop runs a small web server on your PC that only your home network can reach. Your phone opens it in Safari or Chrome, and files go straight from one device to the other.
 
 <p align="center">
-  <img src="docs/pc-dark.png" alt="Skiffdrop on Windows at night: the QR code, the code as keycaps, paired devices, the drop area and an empty activity list" width="760">
+  <img src="docs/pc-dark.png" alt="Skiffdrop on Windows at night: the QR code, the code as keycaps, paired devices, files to send, and the Messages and Files lists" width="760">
 </p>
 <p align="center">
-  <img src="docs/pc-light.png" alt="Skiffdrop on Windows by day: files offered to the phone and a link that arrived" width="760">
+  <img src="docs/pc-light.png" alt="Skiffdrop on Windows by day, before anything has arrived" width="760">
 </p>
 <p align="center">
   <img src="docs/phone-dark.jpg" alt="The phone page in English, dark: send photos, videos or files to the PC" width="300">
@@ -21,6 +21,7 @@ Stop mailing photos to yourself or dropping them in a WhatsApp or Discord chat j
 - **iPhone → PC** and **Android → PC**: photos, videos or any file, many at once and of any size, with a progress bar and the speed.
 - **PC → phone**: drag files or whole folders onto the window (or right-click a file → *Send to* → *Skiffdrop (to phone)*). They show up on the phone with a *Save* button, picture previews and *Save all (.zip)*.
 - **Text and links** both ways. Text from the phone goes straight to the PC's clipboard.
+- **Messages and Files** are two lists on the PC: every text in one, every file sent or received in the other. They are kept on the PC, so they are still there after a restart. Clearing a list never deletes a file.
 - **Nothing to install on the phone.** It's a web page served by your PC, so iPhone, iPad, Android and other computers all work.
 - **Big files are fine.** Uploads go in 16 MB pieces, and a lost connection picks up where it stopped. The PC writes every piece straight to disk, so a 4 GB video doesn't use 4 GB of memory.
 - **Six languages** on the PC and on the phone: English, العربية, Español, Français, 日本語 and 中文（简体）. Each follows the device's language and can be changed (Arabic runs right to left).
@@ -37,14 +38,14 @@ The look is **Harbor Edition**: Harbor Ink and Sail Ivory grounds, brass for the
    Get-FileHash .\Skiffdrop-Setup-1.0.0.exe -Algorithm SHA256
    ```
 3. **One-time network setup.** Your phone has to be able to reach the PC:
-   - Your Wi-Fi must be a **Private** network in Windows (*Settings → Network & internet → Wi-Fi → your network → Private network*). Windows blocks devices on networks marked *Public*. Skiffdrop shows a yellow bar with a shortcut if yours is Public.
+   - Your Wi-Fi must be a **Private** network in Windows (*Settings → Network & internet → Wi-Fi → your network → Private network*). Windows blocks devices on networks marked *Public*. Skiffdrop shows a bar with a shortcut if yours is Public. If your phone connects anyway, close the bar with **✕** and it stays hidden for that network.
    - Click **Allow…** in that bar once. After one admin prompt it adds a firewall rule for Skiffdrop on **private networks only** (TCP port 7340). It never opens anything on public networks.
 
 ## Use it from an iPhone
 
 1. Connect the iPhone and the PC to the **same Wi-Fi**.
-2. Open the **Camera** app, point it at the QR code in Skiffdrop and tap the yellow link. Safari opens the Skiffdrop page.
-3. On the PC, click **Allow** on the small card that pops up at the bottom right. You only do this once per phone.
+2. Open the **Camera** app, point it at the QR code in Skiffdrop and tap the yellow link. Safari opens the Skiffdrop page with the 6-digit code already filled in.
+3. Tap **Connect**, then click **Allow** on the small card that pops up at the bottom right of the PC. You only do this once per phone.
 4. **To send to the PC**: tap *Photos & videos* or *Files* and pick as many as you like. Files land in `Downloads\Skiffdrop` on the PC.
 5. **To get files from the PC**: drop them on the Skiffdrop window. On the iPhone:
    - Photo: tap it, press and hold, then tap **Save to Photos**.
@@ -58,8 +59,8 @@ The look is **Harbor Edition**: Harbor Ink and Sail Ivory grounds, brass for the
 ## Use it from an Android phone
 
 1. Connect the phone and the PC to the **same Wi-Fi**.
-2. Scan the QR code with the camera (or Google Lens) and open the link in Chrome.
-3. Click **Allow** on the PC.
+2. Scan the QR code with the camera (or Google Lens) and open the link in Chrome. The code is already filled in.
+3. Tap **Connect**, then click **Allow** on the PC.
 4. **To send to the PC**: tap *Photos & videos* or *Files*.
 5. **To get files from the PC**: tap **Save** next to a file. It goes to the phone's *Downloads* folder. Photos and videos also show up in the gallery, usually under *Download*.
 

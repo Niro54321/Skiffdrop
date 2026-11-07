@@ -163,8 +163,10 @@ class Hub:
         self.listener.code_changed()
 
     def url(self, ip: str, with_key: bool = True) -> str:
+        """The QR link. The fragment (never sent over the network) carries the key, and the
+        6-digit code so the phone can show it filled in."""
         base = f"http://{ip}:{self.port}/"
-        return base + f"#k={self.key}" if with_key else base
+        return base + f"#k={self.key}&c={self.code}" if with_key else base
 
     # ---------------------------------------------------------------- server life
     def start(self, host: str = "0.0.0.0", port: int | None = None) -> int:
@@ -816,13 +818,15 @@ class Handler(BaseHTTPRequestHandler):
             up.lock.release()
 
     # ---------------------------------------------------------------- downloads
-    def _out_transfer(self, dev: Device, key: str, name: str, size: int) -> Transfer:
-        tid = f"out-{dev.id}-{key}"
+    def _out_transfer(self, dev: Device, key: str, name: str, size: int, path: str = "") -> Transfer:
+        """One entry per download; a resumed download (Range) continues the one still running."""
+        base = f"out-{dev.id}-{key}"
         with self.hub.lock:
-            tr = self.hub.transfers.get(tid)
-            if not tr or tr.state != "active":
-                tr = Transfer(tid, "out", name, dev.name, size)
-                self.hub.transfers[tid] = tr
+            tr = next((t for t in self.hub.transfers.values()
+                       if t.id.startswith(base) and t.state == "active"), None)
+            if tr is None:
+                tr = Transfer(f"{base}-{int(now() * 1000)}", "out", name, dev.name, size, path=path)
+                self.hub.transfers[tr.id] = tr
         return tr
 
     def _file(self, dev: Device, sid: str, query: dict) -> None:
@@ -863,7 +867,7 @@ class Handler(BaseHTTPRequestHandler):
             self._headers(status, ctype, length, extra)
             if self.command == "HEAD":
                 return
-            tr = self._out_transfer(dev, sid, item.name, size) if query.get("dl") else None
+            tr = self._out_transfer(dev, sid, item.name, size, str(item.path)) if query.get("dl") else None
             f.seek(start)
             self._send(f, length, tr, start)
 

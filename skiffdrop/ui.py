@@ -16,7 +16,8 @@ import segno
 from PySide6.QtCore import QByteArray, QObject, QPoint, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QFontDatabase, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
+                               QLineEdit,
                                QProgressBar, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from . import theme as T
@@ -24,6 +25,7 @@ from .i18n import RTL, tr
 
 WEB = Path(__file__).with_name("web")
 FONTS = ("InstrumentSerif-Regular.ttf", "Manrope-wght.ttf", "JetBrainsMono-wght.ttf")
+ZWSP = chr(0x200B)  # zero-width space: a place where a long link may wrap
 
 
 class _Look(QObject):
@@ -700,6 +702,91 @@ class Toast(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
+
+
+class Ask(QDialog):
+    """A question in the app's own colors instead of the grey Windows message box."""
+
+    def __init__(self, parent: QWidget | None, title: str, text: str, yes: str, no: str = "",
+                 danger: bool = False, icon: str = "shield"):
+        super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setModal(True)
+        frame = QFrame(self)
+        frame.setObjectName("askcard")
+        frame.setStyleSheet(f"QFrame#askcard {{ background: {P.panel}; border: 1px solid {P.line2}; border-radius: 18px; }}")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(frame)
+        col = QVBoxLayout(frame)
+        col.setContentsMargins(22, 20, 22, 18)
+        col.setSpacing(14)
+        head = QHBoxLayout()
+        head.setSpacing(14)
+        head.addWidget(icon_tile(icon, 40, "coral" if danger else "brass", "shield" if danger else "tile"), 0,
+                       Qt.AlignmentFlag.AlignTop)
+        texts = QVBoxLayout()
+        texts.setSpacing(6)
+        texts.addWidget(label(title, "strong", wrap=True))
+        texts.addWidget(label(text, "muted", wrap=True))
+        head.addLayout(texts, 1)
+        col.addLayout(head)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        row.addStretch(1)
+        if no:
+            b_no = button(no)
+            b_no.clicked.connect(self.reject)
+            row.addWidget(b_no)
+        b_yes = button(yes, "danger" if danger else "primary")
+        b_yes.clicked.connect(self.accept)
+        b_yes.setDefault(True)
+        row.addWidget(b_yes)
+        col.addLayout(row)
+        self.setFixedWidth(420)
+
+    @staticmethod
+    def confirm(parent, title: str, text: str, yes: str, no: str, danger: bool = True, icon: str = "shield") -> bool:
+        return Ask(parent, title, text, yes, no, danger, icon).exec() == QDialog.DialogCode.Accepted
+
+    @staticmethod
+    def inform(parent, title: str, text: str, ok: str, icon: str = "shield") -> None:
+        Ask(parent, title, text, ok, "", False, icon).exec()
+
+
+class MessageRow(QFrame):
+    """A text in the Messages list: who and when, the words (wrapped), copy and open-link buttons."""
+
+    def __init__(self, who: str, when: str, text: str, outgoing: bool):
+        super().__init__()
+        self.setObjectName("row")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 8, 6, 8)
+        lay.setSpacing(12)
+        lay.addWidget(icon_tile("up" if outgoing else "down", 32), 0, Qt.AlignmentFlag.AlignTop)
+        col = QVBoxLayout()
+        col.setSpacing(3)
+        col.addWidget(ElideLabel(f"{who} · {when}", "sub"))
+        shown = text if len(text) <= 280 else text[:280].rstrip() + "…"
+        # long links have no spaces to wrap at: allow a break after / ? & = . _ - in long words
+        shown = re.sub(r"\S{25,}", lambda m: re.sub(r"([/?&=._-])", lambda c: c.group(1) + ZWSP, m.group(0)), shown)
+        body = label(shown, "name", wrap=True)
+        body.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        body.setMinimumWidth(40)
+        body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if shown != text:
+            body.setToolTip(text[:2000])
+        col.addWidget(body)
+        lay.addLayout(col, 1)
+        self.buttons = QHBoxLayout()
+        self.buttons.setSpacing(2)
+        lay.addLayout(self.buttons)
+
+    def add_button(self, slot, tip: str, icon: str) -> QPushButton:
+        b = button("", "x", tip, icon, "text2")
+        b.clicked.connect(slot)
+        self.buttons.addWidget(b, 0, Qt.AlignmentFlag.AlignTop)
+        return b
 
 
 # ------------------------------------------------------------------ our own title bar on the native frame

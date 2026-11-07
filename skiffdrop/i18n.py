@@ -320,6 +320,48 @@ S: dict[str, dict[str, str]] = {
     },
 }
 
+# Messages and Files lists, the themed dialogs and the warning bar's close button.
+_MORE = {
+    "en": {"messages": "Messages", "files": "Files", "no_messages": "No messages yet",
+           "no_messages_sub": "Text and links from your phones, and what you send them, stay here.",
+           "clear_files_tip": "Clears the list. The files stay on your PC.", "clear_msgs_tip": "Clears the list.",
+           "hide_banner": "Hide for this network", "remove_btn": "Remove", "cancel": "Cancel", "ok": "OK",
+           "gone": "moved or deleted", "open_link": "Open link",
+           "empty_sub": "Files from your phones land here, saved to"},
+    "ar": {"messages": "الرسائل", "files": "الملفات", "no_messages": "لا توجد رسائل بعد",
+           "no_messages_sub": "النصوص والروابط من هواتفك، وما ترسله إليها، تبقى هنا.",
+           "clear_files_tip": "يمسح القائمة فقط. تبقى الملفات على الكمبيوتر.", "clear_msgs_tip": "يمسح القائمة.",
+           "hide_banner": "إخفاء لهذه الشبكة", "remove_btn": "إزالة", "cancel": "إلغاء", "ok": "حسناً",
+           "gone": "نُقل أو حُذف", "open_link": "فتح الرابط",
+           "empty_sub": "الملفات من هواتفك تصل هنا وتُحفظ في"},
+    "es": {"messages": "Mensajes", "files": "Archivos", "no_messages": "Aún no hay mensajes",
+           "no_messages_sub": "Los textos y enlaces de tus teléfonos, y lo que les envías, se quedan aquí.",
+           "clear_files_tip": "Vacía la lista. Los archivos se quedan en tu PC.", "clear_msgs_tip": "Vacía la lista.",
+           "hide_banner": "Ocultar para esta red", "remove_btn": "Quitar", "cancel": "Cancelar", "ok": "Aceptar",
+           "gone": "movido o eliminado", "open_link": "Abrir enlace",
+           "empty_sub": "Los archivos de tus teléfonos llegan aquí y se guardan en"},
+    "fr": {"messages": "Messages", "files": "Fichiers", "no_messages": "Aucun message pour l’instant",
+           "no_messages_sub": "Les textes et liens de vos téléphones, et ce que vous leur envoyez, restent ici.",
+           "clear_files_tip": "Vide la liste. Les fichiers restent sur votre PC.", "clear_msgs_tip": "Vide la liste.",
+           "hide_banner": "Masquer pour ce réseau", "remove_btn": "Retirer", "cancel": "Annuler", "ok": "OK",
+           "gone": "déplacé ou supprimé", "open_link": "Ouvrir le lien",
+           "empty_sub": "Les fichiers de vos téléphones arrivent ici, enregistrés dans"},
+    "ja": {"messages": "メッセージ", "files": "ファイル", "no_messages": "まだメッセージはありません",
+           "no_messages_sub": "スマホからのテキストやリンク、スマホに送った内容がここに残ります。",
+           "clear_files_tip": "一覧だけを消します。ファイルは PC に残ります。", "clear_msgs_tip": "一覧を消します。",
+           "hide_banner": "このネットワークでは表示しない", "remove_btn": "削除", "cancel": "キャンセル", "ok": "OK",
+           "gone": "移動または削除済み", "open_link": "リンクを開く",
+           "empty_sub": "スマホからのファイルはここに届き、次の場所に保存されます"},
+    "zh": {"messages": "消息", "files": "文件", "no_messages": "还没有消息",
+           "no_messages_sub": "来自手机的文字和链接，以及你发给手机的内容，都会保存在这里。",
+           "clear_files_tip": "只清空列表，文件仍保留在电脑上。", "clear_msgs_tip": "清空列表。",
+           "hide_banner": "对此网络不再显示", "remove_btn": "移除", "cancel": "取消", "ok": "确定",
+           "gone": "已移动或删除", "open_link": "打开链接",
+           "empty_sub": "来自手机的文件会出现在这里，保存在"},
+}
+for _code, _words in _MORE.items():
+    S[_code].update(_words)
+
 LANG = "en"
 
 

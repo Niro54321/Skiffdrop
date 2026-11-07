@@ -227,3 +227,28 @@ def test_devices_survive_restart(env, tmp_path):
         assert r.json()["paired"] is True
     finally:
         hub2.stop()
+
+
+def test_qr_link_carries_key_and_code(env):
+    hub, rec, base, _ = env
+    url = hub.url("192.168.1.20")
+    assert url == f"http://192.168.1.20:{hub.port}/#k={hub.key}&c={hub.code}"
+    assert hub.url("192.168.1.20", with_key=False) == f"http://192.168.1.20:{hub.port}/"
+    # the page sends both; either one is enough for the server
+    r = requests.post(base + "/api/pair", json={"key": hub.key, "code": hub.code, "name": "x"}, headers=H)
+    assert r.status_code == 200
+
+
+def test_history_survives_restart(tmp_path):
+    from skiffdrop.history import History
+    h = History(tmp_path)
+    h.add_message("in", "iPhone · Safari", "مرحبا https://example.com", True)
+    h.put_file({"id": "a", "dir": "in", "device": "iPhone", "name": "x.jpg", "path": "C:/x.jpg", "size": 5,
+                "t": 1.0, "state": "done"})
+    h.put_file({"id": "a", "dir": "in", "device": "iPhone", "name": "x.jpg", "path": "C:/x.jpg", "size": 6,
+                "t": 2.0, "state": "done"})
+    again = History(tmp_path)
+    assert again.messages[0]["text"] == "مرحبا https://example.com" and again.messages[0]["copied"]
+    assert len(again.files) == 1 and again.files[0]["size"] == 6
+    again.clear_files()
+    assert History(tmp_path).files == [] and History(tmp_path).messages
