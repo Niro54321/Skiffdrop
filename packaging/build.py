@@ -97,7 +97,18 @@ def notices(target: Path) -> None:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dest)
     lines += ["", "Bundled inside the packages above:",
-              "- Qt 6 (inside PySide6), LGPL-3.0; source: https://download.qt.io/official_releases/qt/"]
+              "- Qt 6 (inside PySide6), LGPL-3.0; source: https://download.qt.io/official_releases/qt/",
+              "", "Fonts (in _internal/skiffdrop/web/fonts, with their licence files), SIL Open Font License 1.1:",
+              "- Instrument Serif, Copyright 2022 The Instrument Serif Project Authors",
+              "  https://github.com/Instrument/instrument-serif",
+              "- Manrope, Copyright 2018 The Manrope Project Authors  https://github.com/googlefonts/manrope",
+              "- JetBrains Mono, Copyright 2020 The JetBrains Mono Project Authors",
+              "  https://github.com/JetBrains/JetBrainsMono"]
+    fonts = ROOT / "skiffdrop" / "web" / "fonts"
+    for f in fonts.glob("*-OFL.txt"):
+        dest = licenses / "fonts" / f.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, dest)
     (target / "THIRD-PARTY-NOTICES.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

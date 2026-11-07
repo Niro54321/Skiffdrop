@@ -39,6 +39,8 @@ class Settings:
     pin_salt: str = ""
     pin_hash: str = ""
     firewall_asked: bool = False
+    theme: str = "system"        # system / dark / light
+    lang: str = ""               # empty = the Windows display language
     path: Path | None = field(default=None, repr=False, compare=False)
 
     @classmethod

@@ -55,7 +55,8 @@ def main() -> int:
         print(("ok   " if cond else "FAIL ") + name)
         ok &= bool(cond)
 
-    for page in ("/", "/app.js", "/style.css", "/icon.svg", "/icon-180.png"):
+    for page in ("/", "/app.js", "/i18n.js", "/style.css", "/icon.svg", "/icon-180.png", "/fonts/Manrope-wght.ttf",
+                 "/fonts/InstrumentSerif-Regular.ttf", "/fonts/JetBrainsMono-wght.ttf"):
         check(f"page {page}", call("GET", page)[0] == 200)
     _, _, raw = call("POST", "/api/pair", {"key": hub.key, "name": "Selftest", "kind": "ios"})
     req = json.loads(raw)["req"]
@@ -81,6 +82,13 @@ def main() -> int:
     qr = QrCode()
     qr.set_text(hub.url("192.168.1.2"))
     check("qr code", len(qr.matrix) > 20)
+    from PySide6.QtGui import QFontDatabase
+    from skiffdrop import ui as ui_mod
+    ui_mod.load_fonts()
+    fams = set(QFontDatabase.families())
+    check("brand fonts", {"Manrope", "Instrument Serif", "JetBrains Mono"} <= fams)
+    from skiffdrop.i18n import S
+    check("six languages", sorted(S) == ["ar", "en", "es", "fr", "ja", "zh"] and all(len(v) == len(S["en"]) for v in S.values()))
     check("icon (Qt SVG)", not icon_pixmap(64).toImage().isNull() and icon_pixmap(64).toImage().pixelColor(32, 2).alpha() > 0)
     t = time.time()
     print("addresses:", [a.label() for a in netutil.addresses()], f"({time.time() - t:.2f} s)")

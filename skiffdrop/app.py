@@ -1,4 +1,4 @@
-"""The PC side: a glass window with the QR code, a tray icon, and the server behind them."""
+"""The PC side: the Harbor window with the QR code, a tray icon, and the server behind them."""
 
 from __future__ import annotations
 
@@ -10,18 +10,21 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QProcess, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QImageReader
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
-                               QLineEdit, QMenu, QMessageBox, QScrollArea, QSizePolicy, QSpinBox, QSystemTrayIcon, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout,
+                               QLineEdit, QMenu, QMessageBox, QScrollArea, QSizePolicy, QSpinBox, QSystemTrayIcon,
+                               QVBoxLayout, QWidget)
 
 from . import __version__, netutil
+from . import theme as T
+from . import ui
 from .config import APP, Devices, Settings
+from .i18n import LANGUAGES, RTL, set_language, tr
 from .server import PAIR_TTL, Hub, Listener, PairRequest, Transfer
-from .ui import (DropZone, QrCode, Row, Speed, Toast, ago, app_icon, button, card, glass, grid_form,
-                 icon_pixmap, label, png_bytes, prepare_glass, size_text)
+from .ui import (Boat, CodeKeys, DropZone, NativeFrameWindow, QrCode, Row, Speed, TitleBar, Toast, ago, app_icon,
+                 button, icon_pixmap, icon_tile, label, panel, png_bytes, set_icon, size_text)
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 THUMB_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
@@ -67,6 +70,14 @@ class Bridge(QObject, Listener):
         self.code.emit()
 
 
+def palette_for(choice: str) -> T.Palette:
+    if choice == "dark":
+        return T.DARK
+    if choice == "light":
+        return T.LIGHT
+    return T.LIGHT if QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Light else T.DARK
+
+
 def startup_command() -> str | None:
     if getattr(sys, "frozen", False):
         return f'"{sys.executable}" --background'
@@ -109,136 +120,188 @@ def reveal(path: Path) -> None:
         os.startfile(str(path if path.exists() else path.parent))  # noqa: S606
 
 
+def section(title: str) -> tuple[QFrame, QVBoxLayout]:
+    frame = QFrame()
+    frame.setObjectName("panel")
+    col = QVBoxLayout(frame)
+    col.setContentsMargins(20, 16, 20, 18)
+    col.setSpacing(10)
+    col.addWidget(label(title, "strong"))
+    return frame, col
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent: "MainWindow"):
         super().__init__(parent)
         self.main = parent
         s = parent.settings
-        self.setWindowTitle("Skiffdrop settings")
-        prepare_glass(self)
-        self.setMinimumWidth(520)
+        self.setWindowTitle(tr("settings"))
+        self.setObjectName("root")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        self.setMinimumWidth(560)
         col = QVBoxLayout(self)
-        col.setContentsMargins(18, 16, 18, 18)
+        col.setContentsMargins(20, 20, 20, 20)
         col.setSpacing(12)
+        col.addWidget(label(tr("settings"), "title"))
 
-        frame, c = card("Where files from your phone go")
+        frame, c = section(tr("appearance"))
+        g = QHBoxLayout()
+        g.setSpacing(10)
+        g.addWidget(label(tr("theme"), "muted"))
+        self.theme = QComboBox()
+        for key in ("system", "dark", "light"):
+            self.theme.addItem(tr(f"theme_{key}"), key)
+        self.theme.setCurrentIndex(max(0, self.theme.findData(s.theme)))
+        self.theme.currentIndexChanged.connect(self._theme)
+        g.addWidget(self.theme)
+        g.addSpacing(12)
+        g.addWidget(label(tr("language"), "muted"))
+        self.lang = QComboBox()
+        self.lang.addItem(tr("lang_system"), "")
+        for code, name in LANGUAGES.items():
+            self.lang.addItem(name, code)
+        self.lang.setCurrentIndex(max(0, self.lang.findData(s.lang)))
+        self.lang.currentIndexChanged.connect(self._lang)
+        g.addWidget(self.lang)
+        g.addStretch(1)
+        c.addLayout(g)
+        r = QHBoxLayout()
+        self.lang_note = label(tr("restart_note"), "sub")
+        r.addWidget(self.lang_note, 1)
+        self.restart = button(tr("restart_now"), "", "", "refresh")
+        self.restart.clicked.connect(parent.restart)
+        r.addWidget(self.restart)
+        c.addLayout(r)
+        self.lang_note.hide()
+        self.restart.hide()
+        col.addWidget(frame)
+
+        frame, c = section(tr("save_to"))
         row = QHBoxLayout()
         self.folder = label(str(s.folder), "url")
         self.folder.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.folder.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         row.addWidget(self.folder, 1)
-        b = button("Change…")
+        b = button(tr("change"), "", "", "folder")
         b.clicked.connect(self._folder)
         row.addWidget(b)
         c.addLayout(row)
         col.addWidget(frame)
 
-        frame, c = card("Security")
-        c.addWidget(label("Every new phone needs your OK on this PC. A PIN adds a second check: "
-                          "the phone has to type it before you're even asked.", "muted", wrap=True))
+        frame, c = section(tr("security"))
+        c.addWidget(label(tr("security_text"), "muted", wrap=True))
         row = QHBoxLayout()
         self.pin = QLineEdit()
-        self.pin.setPlaceholderText("PIN is on" if s.has_pin else "No PIN (4 to 12 digits)")
+        self.pin.setPlaceholderText(tr("pin_ph_on") if s.has_pin else tr("pin_ph_off"))
         self.pin.setEchoMode(QLineEdit.EchoMode.Password)
         self.pin.setMaxLength(12)
         row.addWidget(self.pin, 1)
-        b = button("Set PIN")
+        b = button(tr("set_pin"), "", "", "lock")
         b.clicked.connect(self._set_pin)
         row.addWidget(b)
-        self.pin_off = button("Turn off")
+        self.pin_off = button(tr("pin_off"), "danger")
         self.pin_off.setEnabled(s.has_pin)
         self.pin_off.clicked.connect(self._pin_off)
         row.addWidget(self.pin_off)
         c.addLayout(row)
         col.addWidget(frame)
 
-        frame, c = card("Behaviour")
-        self.copy = QCheckBox("Put text from the phone on the clipboard")
-        self.copy.setChecked(s.copy_text)
-        self.copy.toggled.connect(lambda v: self._set("copy_text", v))
-        c.addWidget(self.copy)
-        self.notify = QCheckBox("Show a notification when files arrive")
-        self.notify.setChecked(s.notify)
-        self.notify.toggled.connect(lambda v: self._set("notify", v))
-        c.addWidget(self.notify)
-        self.startup = QCheckBox("Start with Windows (waits in the tray)")
+        frame, c = section(tr("behaviour"))
+        for text, attr in ((tr("copy_text"), "copy_text"), (tr("notify"), "notify")):
+            box = QCheckBox(text)
+            box.setChecked(getattr(s, attr))
+            box.toggled.connect(lambda v, a=attr: self._set(a, v))
+            c.addWidget(box)
+        self.startup = QCheckBox(tr("startup"))
         self.startup.setChecked(startup_enabled())
         self.startup.setEnabled(startup_command() is not None)
         self.startup.toggled.connect(set_startup)
         c.addWidget(self.startup)
-        g = grid_form()
-        g.addWidget(label("Port"), 0, 0)
+        g = QHBoxLayout()
+        g.addWidget(label(tr("port"), "muted"))
         self.port = QSpinBox()
         self.port.setRange(1024, 65535)
         self.port.setValue(s.port)
         self.port.valueChanged.connect(lambda v: self._set("port", v))
-        g.addWidget(self.port, 0, 1)
-        g.addWidget(label("used after a restart of Skiffdrop", "sub"), 0, 2)
-        g.setColumnStretch(2, 1)
+        g.addWidget(self.port)
+        g.addWidget(label(tr("port_note"), "sub"))
+        g.addStretch(1)
         c.addLayout(g)
         col.addWidget(frame)
 
-        frame, c = card("Windows Firewall")
-        c.addWidget(label("Phones reach Skiffdrop through Windows Firewall. The rule allows it on private "
-                          "networks only (your home Wi-Fi), never on public ones.", "muted", wrap=True))
+        frame, c = section(tr("firewall"))
+        c.addWidget(label(tr("firewall_text"), "muted", wrap=True))
         row = QHBoxLayout()
         self.fw = label("", "sub")
         row.addWidget(self.fw, 1)
-        b = button("Allow on private networks…")
+        b = button(tr("allow_fw"), "", tr("allow_fw_tip"), "shield")
         b.clicked.connect(parent.fix_firewall)
         row.addWidget(b)
         c.addLayout(row)
         col.addWidget(frame)
+
         foot = QHBoxLayout()
         foot.addWidget(label(f"Skiffdrop {__version__} · MIT · github.com/Niro54321/Skiffdrop", "sub"), 1)
-        close = button("Done", "primary")
+        close = button(tr("done"), "primary")
         close.clicked.connect(self.accept)
         foot.addWidget(close)
         col.addLayout(foot)
         self.refresh()
 
     def refresh(self) -> None:
-        self.fw.setText("Rule is in place." if self.main.rule_ok else "No Skiffdrop rule yet.")
+        self.fw.setText(tr("rule_ok") if self.main.rule_ok else tr("rule_missing"))
 
     def showEvent(self, e) -> None:  # noqa: N802
         super().showEvent(e)
-        glass(self)
+        ui.dark_frame(self)
 
     def _set(self, name: str, value) -> None:
         setattr(self.main.settings, name, value)
         self.main.settings.save()
 
+    def _theme(self) -> None:
+        self._set("theme", self.theme.currentData())
+        ui.apply_look(palette_for(self.main.settings.theme))
+
+    def _lang(self) -> None:
+        self._set("lang", self.lang.currentData())
+        self.lang_note.show()
+        self.restart.show()
+
     def _folder(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Save files from your phone in", str(self.main.settings.folder))
+        d = QFileDialog.getExistingDirectory(self, tr("folder_dialog"), str(self.main.settings.folder))
         if d:
             self._set("save_dir", d)
             self.folder.setText(d)
+            self.main.empty_path.setText(d)
 
     def _set_pin(self) -> None:
         pin = self.pin.text().strip()
         if not (pin.isdigit() and 4 <= len(pin) <= 12):
-            QMessageBox.information(self, "PIN", "Use 4 to 12 digits.")
+            QMessageBox.information(self, "PIN", tr("pin_digits"))
             return
         self.main.settings.set_pin(pin)
         self.main.settings.save()
         self.pin.clear()
-        self.pin.setPlaceholderText("PIN is on")
+        self.pin.setPlaceholderText(tr("pin_ph_on"))
         self.pin_off.setEnabled(True)
         self.main.refresh_qr()
 
     def _pin_off(self) -> None:
         self.main.settings.set_pin("")
         self.main.settings.save()
-        self.pin.setPlaceholderText("No PIN (4 to 12 digits)")
+        self.pin.setPlaceholderText(tr("pin_ph_off"))
         self.pin_off.setEnabled(False)
         self.main.refresh_qr()
 
 
-class MainWindow(QWidget):
+class MainWindow(NativeFrameWindow):
     net_checked = Signal(str, bool)   # network category, firewall rule exists
 
-    def __init__(self, hub: Hub, settings: Settings, bridge: Bridge):
+    def __init__(self, hub: Hub, settings: Settings, bridge: Bridge, restart=None):
         super().__init__()
         self.hub, self.settings, self.bridge = hub, settings, bridge
+        self._restart = restart
         self.rule_ok = True
         self.category = ""
         self.rows: dict[str, Row] = {}
@@ -248,109 +311,119 @@ class MainWindow(QWidget):
         self.received_batch: list[tuple[str, str]] = []
         self.quitting = False
         self.dialog: SettingsDialog | None = None
+        self._framed = False
 
         self.setWindowTitle("Skiffdrop")
         self.setWindowIcon(app_icon())
-        prepare_glass(self)
+        self.setObjectName("root")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         self.setAcceptDrops(True)
-        self.resize(1040, 720)
-        self.setMinimumSize(880, 600)
+        self.resize(1080, 860)
+        self.setMinimumSize(960, 780)
 
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(18, 16, 18, 18)
-        outer.setSpacing(14)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self.titlebar = TitleBar(self, self.open_settings)
+        root.addWidget(self.titlebar)
+        body = QHBoxLayout()
+        body.setContentsMargins(24, 20, 24, 24)
+        body.setSpacing(20)
+        root.addLayout(body, 1)
 
-        # ---------------------------------------------------------- left: QR + phones
+        # ---------------------------------------------------------- left: pairing and devices
         left = QVBoxLayout()
-        left.setSpacing(12)
-        head = QHBoxLayout()
-        logo = QLabel()
-        logo.setPixmap(icon_pixmap(40))
-        head.addWidget(logo)
-        names = QVBoxLayout()
-        names.setSpacing(0)
-        names.addWidget(label("Skiffdrop", "title"))
-        names.addWidget(label("Phone ⇄ PC over your Wi-Fi", "muted"))
-        head.addLayout(names, 1)
-        gear = button("⚙", "flat", "Settings")
-        gear.setStyleSheet("font-size: 18px;")
-        gear.clicked.connect(self.open_settings)
-        head.addWidget(gear)
-        left.addLayout(head)
-
-        frame, c = card("Scan with your phone's camera")
-        self.qr = QrCode(256)
+        left.setSpacing(20)
+        frame, c = panel(tr("pair_title"), label(tr("pair_meta"), "meta"))
+        c.setSpacing(12)
+        self.qr = QrCode(212)
         c.addWidget(self.qr, 0, Qt.AlignmentFlag.AlignHCenter)
         self.url = label("", "url")
         self.url.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         c.addWidget(self.url)
-        coderow = QHBoxLayout()
-        coderow.addStretch(1)
-        coderow.addWidget(label("or type", "muted"))
-        self.code = label("", "code")
-        self.code.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        coderow.addWidget(self.code)
-        coderow.addStretch(1)
-        c.addLayout(coderow)
-        row = QHBoxLayout()
+        hint = label(tr("or_type"), "muted")
+        hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        c.addWidget(hint)
+        self.code = CodeKeys()
+        c.addWidget(self.code)
         self.addr = QComboBox()
-        self.addr.setToolTip("The network address in the QR code. Pick the adapter your phone's Wi-Fi is on.")
+        self.addr.setToolTip(tr("addr_tip"))
         self.addr.currentIndexChanged.connect(self._address_picked)
-        row.addWidget(self.addr, 1)
-        renew = button("New code", "", "Old QR codes and codes stop working. Phones you allowed stay allowed.")
+        c.addWidget(self.addr)
+        renew = button(tr("new_code"), "", tr("new_code_tip"), "refresh")
+        renew.setMinimumHeight(40)
         renew.clicked.connect(self.hub.renew_code)
-        row.addWidget(renew)
-        c.addLayout(row)
-        self.pin_note = label("", "sub")
+        c.addWidget(renew)
+        self.pin_note = label(tr("pin_on"), "sub")
         self.pin_note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         c.addWidget(self.pin_note)
-        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)  # the QR never gets squeezed
+        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         left.addWidget(frame)
 
-        frame, c = card("Phones")
+        self.paired_meta = label("", "meta")
+        frame, c = panel(tr("devices"), self.paired_meta)
+        c.setSpacing(6)
         self.devices_box = QVBoxLayout()
-        self.devices_box.setSpacing(0)
+        self.devices_box.setSpacing(4)
         holder = QWidget()
-        outer_box = QVBoxLayout(holder)
-        outer_box.setContentsMargins(0, 0, 4, 0)
-        outer_box.addLayout(self.devices_box)
-        outer_box.addStretch(1)
-        devscroll = QScrollArea()
-        devscroll.setWidgetResizable(True)
-        devscroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        devscroll.setWidget(holder)
-        c.addWidget(devscroll, 1)
-        self.no_devices = label("No phones yet. Scan the code above with the camera app.", "muted", wrap=True)
+        hb = QVBoxLayout(holder)
+        hb.setContentsMargins(0, 0, 0, 0)
+        hb.addLayout(self.devices_box)
+        hb.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(holder)
+        c.addWidget(scroll, 1)
+        self.no_devices = label(tr("no_devices"), "muted", wrap=True)
         c.addWidget(self.no_devices)
         left.addWidget(frame, 1)
         lw = QWidget()
         lw.setLayout(left)
-        lw.setFixedWidth(330)
-        outer.addWidget(lw)
+        lw.setFixedWidth(340)
+        body.addWidget(lw)
 
-        # ---------------------------------------------------------- right: send, activity
+        # ---------------------------------------------------------- right: warning, send, activity
         right = QVBoxLayout()
-        right.setSpacing(12)
+        right.setSpacing(20)
         self.banner = self._banner()
         right.addWidget(self.banner)
 
-        frame, c = card("Send to phone")
+        stays = QWidget()
+        sl = QHBoxLayout(stays)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.setSpacing(6)
+        lock = label()
+        set_icon(lock, "lock", "text2", 15)
+        sl.addWidget(lock)
+        sl.addWidget(label(tr("stays"), "meta"))
+        frame, c = panel(tr("send_title"), stays)
         self.drop = DropZone()
+
         dl = QVBoxLayout(self.drop)
-        dl.setContentsMargins(14, 12, 14, 12)
-        dl.addWidget(label("Drop files or folders here", ""), 0, Qt.AlignmentFlag.AlignHCenter)
-        dl.addWidget(label("They show up on every connected phone until you remove them.", "sub"), 0,
-                     Qt.AlignmentFlag.AlignHCenter)
+        dl.setContentsMargins(16, 18, 16, 18)
+        dl.setSpacing(6)
+        circle = icon_tile("upload", 40, "text", "circle")
+        dl.addWidget(circle, 0, Qt.AlignmentFlag.AlignHCenter)
+        dl.addSpacing(4)
+        t = label(tr("drop_title"), "strong")
+        t.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        dl.addWidget(t)
+        s = label(tr("drop_sub"), "muted")
+        s.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        dl.addWidget(s)
+        dl.addSpacing(8)
         btns = QHBoxLayout()
+        btns.setSpacing(10)
         btns.addStretch(1)
-        b = button("Add files…")
+        b = button(tr("add_files"), "", "", "file_plus")
         b.clicked.connect(self._add_files)
         btns.addWidget(b)
-        b = button("Add folder…")
+        b = button(tr("add_folder"), "", "", "folder")
         b.clicked.connect(self._add_folder)
         btns.addWidget(b)
-        self.clear_shared = button("Remove all")
+        self.clear_shared = button(tr("remove_all"), "ghost")
         self.clear_shared.clicked.connect(lambda: self.hub.unshare(None))
         btns.addWidget(self.clear_shared)
         btns.addStretch(1)
@@ -358,56 +431,82 @@ class MainWindow(QWidget):
         self.drop.dropped.connect(self.share)
         c.addWidget(self.drop)
         self.shared_box = QVBoxLayout()
-        self.shared_box.setSpacing(0)
+        self.shared_box.setSpacing(2)
         sw = QWidget()
         sw.setLayout(self.shared_box)
         self.shared_scroll = QScrollArea()
         self.shared_scroll.setWidgetResizable(True)
         self.shared_scroll.setWidget(sw)
-        self.shared_scroll.setMaximumHeight(150)
         self.shared_scroll.hide()
         c.addWidget(self.shared_scroll)
         trow = QHBoxLayout()
+        trow.setSpacing(10)
         self.text = QLineEdit()
-        self.text.setPlaceholderText("Text or link for your phone…")
+        self.text.setPlaceholderText(tr("text_ph"))
         self.text.returnPressed.connect(self._send_text)
         trow.addWidget(self.text, 1)
-        b = button("Paste clipboard", "", "Sends what you copied on this PC")
+        b = button(tr("paste"), "", tr("paste_tip"), "clipboard")
+        b.setMinimumHeight(42)
         b.clicked.connect(self._send_clipboard)
         trow.addWidget(b)
-        b = button("Send", "primary")
-        b.clicked.connect(self._send_text)
-        trow.addWidget(b)
+        rtl = ui.LANG in RTL
+        send = button(tr("send"), "primary", "", "arrow_left" if rtl else "arrow_right", "ink")
+        send.setMinimumHeight(42)
+        # the arrow trails the word, in reading order
+        send.setLayoutDirection(Qt.LayoutDirection.LeftToRight if rtl else Qt.LayoutDirection.RightToLeft)
+        send.clicked.connect(self._send_text)
+        trow.addWidget(send)
         c.addLayout(trow)
+        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         right.addWidget(frame)
 
-        frame, c = card("")
-        top = QHBoxLayout()
-        h = label("ACTIVITY", "h")
-        top.addWidget(h, 1)
-        self.total = label("", "sub")
-        top.addWidget(self.total)
-        b = button("Open folder", "flat")
+        tools = QWidget()
+        tl = QHBoxLayout(tools)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(4)
+        self.total = label("", "meta")
+        tl.addWidget(self.total)
+        b = button(tr("open_folder"), "ghost", "", "folder", "text")
         b.clicked.connect(lambda: reveal(self.settings.folder))
-        top.addWidget(b)
-        b = button("Clear", "flat")
+        tl.addWidget(b)
+        b = button(tr("clear"), "ghost")
         b.clicked.connect(self._clear_activity)
-        top.addWidget(b)
-        c.addLayout(top)
+        tl.addWidget(b)
+        frame, c = panel(tr("activity"), tools)
+        well = QFrame()
+        well.setObjectName("well")
+        wl = QVBoxLayout(well)
+        wl.setContentsMargins(8, 8, 8, 8)
         self.activity = QVBoxLayout()
-        self.activity.setSpacing(0)
+        self.activity.setSpacing(2)
         self.activity.addStretch(1)
         aw = QWidget()
         aw.setLayout(self.activity)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(aw)
-        self.no_activity = label("Files and text from your phones show up here. They are saved in "
-                                 f"{self.settings.folder}.", "muted", wrap=True)
-        c.addWidget(self.no_activity)
-        c.addWidget(scroll, 1)
+        self.activity_scroll = QScrollArea()
+        self.activity_scroll.setWidgetResizable(True)
+        self.activity_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.activity_scroll.setWidget(aw)
+        self.activity_scroll.hide()
+        wl.addWidget(self.activity_scroll)
+        self.empty = QWidget()
+        el = QVBoxLayout(self.empty)
+        el.setSpacing(8)
+        el.addStretch(1)
+        el.addWidget(Boat(), 0, Qt.AlignmentFlag.AlignHCenter)
+        et = label(tr("empty_title"), "strong")
+        et.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        el.addWidget(et)
+        es = label(tr("empty_sub"), "muted", wrap=True)
+        es.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        el.addWidget(es)
+        self.empty_path = label(str(self.settings.folder), "path")
+        self.empty_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        el.addWidget(self.empty_path, 0, Qt.AlignmentFlag.AlignHCenter)
+        el.addStretch(1)
+        wl.addWidget(self.empty)
+        c.addWidget(well, 1)
         right.addWidget(frame, 1)
-        outer.addLayout(right, 1)
+        body.addLayout(right, 1)
 
         # ---------------------------------------------------------- wiring
         bridge.pair.connect(self.ask_pair)
@@ -427,10 +526,18 @@ class MainWindow(QWidget):
         self.refresh_devices()
         self.refresh_shared()
 
-    # ---------------------------------------------------------------- glass + tray behaviour
+    # ---------------------------------------------------------------- frame and tray behaviour
     def showEvent(self, e) -> None:  # noqa: N802
         super().showEvent(e)
-        glass(self)
+        if not self._framed:
+            self._framed = True
+            self.install_frame()
+        ui.dark_frame(self)
+
+    def changeEvent(self, e) -> None:  # noqa: N802
+        super().changeEvent(e)
+        if e.type() == e.Type.WindowStateChange:
+            self.titlebar.refresh()
 
     def closeEvent(self, e) -> None:  # noqa: N802
         if self.quitting:
@@ -440,14 +547,17 @@ class MainWindow(QWidget):
         app = QApplication.instance()
         if not getattr(app, "_told_tray", False) and getattr(app, "tray", None):
             app._told_tray = True
-            app.tray.showMessage("Skiffdrop is still on", "Phones can keep sending. Quit from the tray icon.",
-                                 app_icon(), 4000)
+            app.tray.showMessage(tr("still_on_title"), tr("still_on"), app_icon(), 4000)
 
     def bring_up(self) -> None:
         self.show()
         self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
         self.raise_()
         self.activateWindow()
+
+    def restart(self) -> None:
+        if self._restart:
+            self._restart()
 
     # ---------------------------------------------------------------- network + QR
     def load_addresses(self) -> None:
@@ -457,7 +567,7 @@ class MainWindow(QWidget):
         for a in self.addresses:
             self.addr.addItem(a.label(), a.ip)
         if not self.addresses:
-            self.addr.addItem("No network: connect to Wi-Fi", "")
+            self.addr.addItem(tr("no_network"), "")
         pick = next((i for i, a in enumerate(self.addresses) if a.ip == self.settings.ip), 0)
         self.addr.setCurrentIndex(pick)
         self.addr.blockSignals(False)
@@ -480,13 +590,12 @@ class MainWindow(QWidget):
         a = self.current_address()
         if not a:
             self.qr.set_text("")
-            self.url.setText("Connect this PC to Wi-Fi or Ethernet")
-            self.code.setText("")
+            self.url.setText(tr("no_network"))
+            self.code.set_code("")
             return
         self.qr.set_text(self.hub.url(a.ip))
         self.url.setText(self.hub.url(a.ip, with_key=False).rstrip("/"))
-        self.code.setText(f"{self.hub.code[:3]} {self.hub.code[3:]}")
-        self.pin_note.setText("PIN required on the phone" if self.settings.has_pin else "")
+        self.code.set_code(self.hub.code)
         self.pin_note.setVisible(self.settings.has_pin)
         app = QApplication.instance()
         if getattr(app, "tray", None):
@@ -508,29 +617,28 @@ class MainWindow(QWidget):
         self.banner_rule.setVisible(not rule)
         self.banner.setVisible(public or not rule)
         if public and a:
-            self.banner_text.setText(f"Windows treats the network on “{a.adapter}” as Public, so it blocks your "
-                                     "phone. If this is your home Wi-Fi, make it a Private network.")
+            self.banner_text.setText(tr("public", name=a.adapter))
         elif not rule:
-            self.banner_text.setText("Allow Skiffdrop through Windows Firewall so phones can reach it. "
-                                     "It's allowed on private networks only.")
+            self.banner_text.setText(tr("no_rule"))
         if self.dialog:
             self.dialog.refresh()
 
-    def _banner(self):
-        from PySide6.QtWidgets import QFrame
+    def _banner(self) -> QFrame:
         f = QFrame()
         f.setObjectName("banner")
         lay = QHBoxLayout(f)
-        lay.setContentsMargins(14, 10, 10, 10)
-        self.banner_text = label("", "", wrap=True)
+        lay.setContentsMargins(16, 14, 14, 14)
+        lay.setSpacing(14)
+        lay.addWidget(icon_tile("shield", 40, "coral", "shield"))
+        self.banner_text = label("", "", wrap=True, rich=True)
         lay.addWidget(self.banner_text, 1)
-        self.banner_public = button("Network settings…")
+        self.banner_public = button(tr("net_settings"))
         self.banner_public.clicked.connect(self._open_network_settings)
         lay.addWidget(self.banner_public)
-        self.banner_rule = button("Allow…", "primary", "One admin prompt. Adds a rule for private networks only.")
+        self.banner_rule = button(tr("allow_fw"), "", tr("allow_fw_tip"), "shield")
         self.banner_rule.clicked.connect(self.fix_firewall)
         lay.addWidget(self.banner_rule)
-        recheck = button("Check again", "flat")
+        recheck = button(tr("check_again"), "link")
         recheck.clicked.connect(self.check_network)
         lay.addWidget(recheck)
         f.hide()
@@ -554,10 +662,8 @@ class MainWindow(QWidget):
 
     # ---------------------------------------------------------------- pairing
     def ask_pair(self, req: PairRequest) -> None:
-        kind = {"ios": "iPhone/iPad", "android": "Android", "desktop": "computer"}.get(req.kind, "device")
-        toast = Toast(f"{req.name} wants to connect",
-                      f"A {kind} at {req.ip} scanned your Skiffdrop code. Allow it to send and receive files?",
-                      "Allow", "Deny", PAIR_TTL)
+        toast = Toast(tr("wants", name=req.name), tr("wants_sub", ip=req.ip), tr("allow"), tr("deny"), PAIR_TTL,
+                      "laptop" if req.kind == "desktop" else "phone")
         toast.answered.connect(lambda yes, rid=req.id: self.hub.resolve_pair(rid, yes))
         toast.destroyed.connect(lambda *_: self.toasts.remove(toast) if toast in self.toasts else None)
         self.toasts.append(toast)
@@ -572,17 +678,19 @@ class MainWindow(QWidget):
         devs = self.hub.devices.all()
         for d in devs:
             on = self.hub.online(d)
-            r = Row(d.name, ("● connected" if on else ago(d.last_seen)) + (f" · {d.ip}" if d.ip else ""))
-            r.sub.setObjectName("ok" if on else "sub")
-            r.setToolTip(f"Allowed {time.strftime('%d %b %Y %H:%M', time.localtime(d.added))}")
-            r.add_button("✕", lambda _=False, i=d.id, n=d.name: self._remove_device(i, n),
-                         "Remove: this phone will need your OK again")
+            r = Row(d.name, "", "laptop" if d.kind == "desktop" else "phone")
+            if on:
+                r.set_sub(tr("connected"), "ok", d.ip)
+            else:
+                r.set_sub(tr("seen", ago=ago(d.last_seen)), "sub", d.ip)
+            r.set_on(on)
+            r.add_button("", lambda _=False, i=d.id, n=d.name: self._remove_device(i, n), tr("remove_tip"), "close")
             self.devices_box.addWidget(r)
         self.no_devices.setVisible(not devs)
+        self.paired_meta.setText(tr("paired", n=len(devs)) if devs else "")
 
     def _remove_device(self, dev_id: str, name: str) -> None:
-        if QMessageBox.question(self, "Remove phone", f"Remove {name}? It will have to scan the code and ask "
-                                "again.") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, tr("remove_title"), tr("remove_q", name=name)) == QMessageBox.StandardButton.Yes:
             self.hub.revoke(dev_id)
 
     # ---------------------------------------------------------------- sharing
@@ -600,12 +708,12 @@ class MainWindow(QWidget):
             self.share(paths)
 
     def _add_files(self) -> None:
-        files, _ = QFileDialog.getOpenFileNames(self, "Send to phone")
+        files, _ = QFileDialog.getOpenFileNames(self, tr("send_title"))
         if files:
             self.share([Path(f) for f in files])
 
     def _add_folder(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Send a folder to phone")
+        d = QFileDialog.getExistingDirectory(self, tr("send_title"))
         if d:
             self.share([Path(d)])
 
@@ -618,11 +726,12 @@ class MainWindow(QWidget):
                 self.shared_rows.pop(sid).deleteLater()
         for s in items:
             if s.id not in self.shared_rows:
-                r = Row(s.rel, size_text(s.size), "↑")
-                r.add_button("✕", lambda _=False, i=s.id: (self.hub.unshare(i), self.refresh_shared()),
-                             "Stop offering this file")
+                r = Row(s.rel, size_text(s.size), "file", 32)
+                r.add_button("", lambda _=False, i=s.id: (self.hub.unshare(i), self.refresh_shared()),
+                             tr("unshare_tip"), "close")
                 self.shared_rows[s.id] = r
                 self.shared_box.addWidget(r)
+        self.shared_scroll.setFixedHeight(min(len(items), 3) * 60 + 4)
         self.shared_scroll.setVisible(bool(items))
         self.clear_shared.setVisible(bool(items))
 
@@ -631,7 +740,7 @@ class MainWindow(QWidget):
         if text.strip():
             self.hub.send_text(text)
             self.text.clear()
-            self._activity_text("You sent", text)
+            self._activity_text(tr("you_sent"), text)
 
     def _send_clipboard(self) -> None:
         cb = QGuiApplication.clipboard()
@@ -642,50 +751,46 @@ class MainWindow(QWidget):
         text = cb.text()
         if text.strip():
             self.hub.send_text(text)
-            self._activity_text("You sent", text)
+            self._activity_text(tr("you_sent"), text)
 
     # ---------------------------------------------------------------- activity
     def _insert(self, row: Row) -> None:
         self.activity.insertWidget(0, row)
-        self.no_activity.hide()
+        self.empty.hide()
+        self.activity_scroll.show()
 
     def on_transfer(self, t: Transfer) -> None:
         r = self.rows.get(t.id)
         if r is None:
-            glyph = "↓" if t.direction == "in" else "↑"
-            r = Row(t.name, "", glyph)
+            r = Row(t.name, "", "down" if t.direction == "in" else "up")
             r.bar.show()
             self.rows[t.id] = r
             self.speeds[t.id] = Speed()
             self._insert(r)
         sp = self.speeds[t.id].add(t.done)
-        frac = t.done / t.size if t.size else 1.0
-        r.bar.setValue(int(frac * 1000))
-        who = f"from {t.device}" if t.direction == "in" else f"to {t.device}"
+        r.bar.setValue(int((t.done / t.size if t.size else 1.0) * 1000))
+        who = tr("from_dev", dev=t.device) if t.direction == "in" else tr("to_dev", dev=t.device)
         if t.state == "active":
-            r.sub.setObjectName("sub")
             speed = f" · {size_text(sp)}/s" if sp > 0 else ""
-            r.sub.setText(f"{who} · {size_text(t.done)} of {size_text(t.size)}{speed}")
+            r.set_sub(f"{who} · {tr('progress', done=size_text(t.done), total=size_text(t.size))}{speed}")
+            return
+        r.bar.hide()
+        secs = max(0.001, (t.finished or time.time()) - t.started)
+        avg = f" · {tr('average', speed=size_text(t.size / secs))}" if t.state == "done" and t.size > 4 << 20 else ""
+        if t.state == "done":
+            word = tr("received" if t.direction == "in" else "sent", size=size_text(t.size))
+            r.set_sub(f"{who} · {word}{avg}", "ok")
         else:
-            r.bar.hide()
-            secs = max(0.001, (t.finished or time.time()) - t.started)
-            avg = f" · {size_text(t.size / secs)}/s average" if t.state == "done" and t.size > 4 << 20 else ""
-            word = {"done": "received" if t.direction == "in" else "sent", "failed": "stopped",
-                    "cancelled": "cancelled"}[t.state]
-            r.sub.setObjectName("ok" if t.state == "done" else "bad")
-            r.sub.setText(f"{who} · {size_text(t.size)} {word}{avg}")
-            if t.state == "done" and t.direction == "in" and t.path and not getattr(r, "_buttons", False):
-                r._buttons = True
-                path = Path(t.path)
-                if path.name != t.name:
-                    r.full_title = path.name
-                    r.title.setText(path.name)
-                r.add_button("Open", lambda _=False, p=path: os.startfile(str(p)))  # noqa: S606
-                r.add_button("Show", lambda _=False, p=path: reveal(p), "Show in folder")
-                self.received_batch.append((t.device, path.name))
-                self.notify_timer.start(1500)
-        r.sub.style().unpolish(r.sub)
-        r.sub.style().polish(r.sub)
+            r.set_sub(f"{who} · {tr('stopped' if t.state == 'failed' else 'cancelled')}", "bad")
+        if t.state == "done" and t.direction == "in" and t.path and not getattr(r, "_buttons", False):
+            r._buttons = True
+            path = Path(t.path)
+            if path.name != t.name:
+                r.set_title(path.name)
+            r.add_button(tr("open"), lambda _=False, p=path: os.startfile(str(p)))  # noqa: S606
+            r.add_button(tr("show"), lambda _=False, p=path: reveal(p), tr("show_tip"))
+            self.received_batch.append((t.device, path.name))
+            self.notify_timer.start(1500)
 
     def _notify_received(self) -> None:
         batch, self.received_batch = self.received_batch, []
@@ -693,7 +798,7 @@ class MainWindow(QWidget):
         if not batch or not self.settings.notify or not getattr(app, "tray", None) or self.isActiveWindow():
             return
         who = batch[0][0]
-        title = f"{len(batch)} files from {who}" if len(batch) > 1 else f"File from {who}"
+        title = tr("files_from", n=len(batch), dev=who) if len(batch) > 1 else tr("file_from", dev=who)
         app.tray.showMessage(title, ", ".join(n for _, n in batch[:4]) + ("…" if len(batch) > 4 else ""),
                              app_icon(), 5000)
 
@@ -702,18 +807,18 @@ class MainWindow(QWidget):
         if self.settings.copy_text:
             QGuiApplication.clipboard().setText(text)
             copied = True
-        self._activity_text(f"{device.name} sent", text, copied)
+        self._activity_text(tr("dev_sent", dev=device.name), text, copied)
         app = QApplication.instance()
         if self.settings.notify and getattr(app, "tray", None) and not self.isActiveWindow():
-            app.tray.showMessage(f"Text from {device.name}" + (" (copied)" if copied else ""), text[:200],
-                                 app_icon(), 4000)
+            app.tray.showMessage(tr("text_from", dev=device.name), text[:200], app_icon(), 4000)
 
     def _activity_text(self, who: str, text: str, copied: bool = False) -> None:
         one = " ".join(text.split())
-        r = Row(one[:300], f"{who} · {time.strftime('%H:%M')}" + (" · copied to clipboard" if copied else ""), "¶")
-        r.add_button("Copy", lambda _=False, s=text: QGuiApplication.clipboard().setText(s))
+        r = Row(one[:300], "", "text")
+        r.set_sub(f"{who} · {time.strftime('%H:%M')}" + (f" · {tr('copied')}" if copied else ""))
+        r.add_button(tr("copy"), lambda _=False, s=text: QGuiApplication.clipboard().setText(s))
         if one.startswith(("http://", "https://")) and " " not in one:
-            r.add_button("Open", lambda _=False, s=one: QDesktopServices.openUrl(QUrl(s)))
+            r.add_button(tr("open"), lambda _=False, s=one: QDesktopServices.openUrl(QUrl(s)))
         self._insert(r)
 
     def _clear_activity(self) -> None:
@@ -727,7 +832,9 @@ class MainWindow(QWidget):
             w = self.activity.itemAt(i).widget()
             if w and w not in self.rows.values():
                 w.deleteLater()
-        self.no_activity.setVisible(not self.rows)
+        if not self.rows:
+            self.activity_scroll.hide()
+            self.empty.show()
 
     def _tick(self) -> None:
         if self.hub.version != self._last_shared_version:
@@ -735,7 +842,7 @@ class MainWindow(QWidget):
         active = [t for t in list(self.hub.transfers.values()) if t.state == "active"]
         for t in active:
             self.on_transfer(t)  # keeps the speed fresh when bytes stop coming
-        self.total.setText(f"{len(active)} moving" if active else "")
+        self.total.setText(tr("moving", n=len(active)) if active else "")
         if int(time.time()) % 15 == 0:
             self.refresh_devices()
 
@@ -782,6 +889,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = Settings.load()
+    lang = set_language(settings.lang)
+    ui.load_fonts()
+    if lang in RTL:
+        app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+    ui.apply_look(palette_for(settings.theme), lang)
+    QGuiApplication.styleHints().colorSchemeChanged.connect(
+        lambda *_: settings.theme == "system" and ui.apply_look(palette_for("system")))
+
     devices = Devices()
     bridge = Bridge()
     hub = Hub(settings, devices, bridge, thumbnail)
@@ -789,21 +904,39 @@ def main(argv: list[str] | None = None) -> int:
     try:
         hub.start(os.environ.get("SKIFFDROP_HOST", "0.0.0.0"))  # the tests bind 127.0.0.1
     except OSError as e:
-        QMessageBox.critical(None, "Skiffdrop", f"Couldn't start the local server:\n{e}")
+        QMessageBox.critical(None, "Skiffdrop", f"{tr('server_error')}\n{e}")
         return 1
 
-    win = MainWindow(hub, settings, bridge)
     tray = QSystemTrayIcon(app_icon())
     app.tray = tray
+
+    def quit_all():
+        win.quitting = True
+        tray.hide()
+        hub.stop()
+        app.quit()
+
+    def restart():
+        instance.close()  # free the single-instance name and the port before the new copy starts
+        hub.stop()
+        program, args = (sys.executable, []) if getattr(sys, "frozen", False) else \
+            (sys.executable, ["-m", "skiffdrop"])
+        QProcess.startDetached(program, args, str(Path.cwd()))
+        win.quitting = True
+        tray.hide()
+        app.quit()
+
+    win = MainWindow(hub, settings, bridge, restart)
     menu = QMenu()
-    show = QAction("Open Skiffdrop", menu)
+    show = QAction(tr("tray_open"), menu)
     show.triggered.connect(win.bring_up)
     menu.addAction(show)
-    folder = QAction("Open received files", menu)
+    folder = QAction(tr("tray_folder"), menu)
     folder.triggered.connect(lambda: reveal(settings.folder))
     menu.addAction(folder)
     menu.addSeparator()
-    quit_action = QAction("Quit", menu)
+    quit_action = QAction(tr("tray_quit"), menu)
+    quit_action.triggered.connect(quit_all)
     menu.addAction(quit_action)
     tray.setContextMenu(menu)
     tray.activated.connect(lambda reason: win.bring_up()
@@ -826,13 +959,6 @@ def main(argv: list[str] | None = None) -> int:
             win.bring_up()
         conn.readyRead.connect(read)
     instance.newConnection.connect(on_message)
-
-    def quit_all():
-        win.quitting = True
-        tray.hide()
-        hub.stop()
-        app.quit()
-    quit_action.triggered.connect(quit_all)
     app.aboutToQuit.connect(lambda: hub.server and hub.stop())
 
     if files:

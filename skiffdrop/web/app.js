@@ -1,73 +1,27 @@
 'use strict';
 // Skiffdrop phone page: pairs with the PC, sends files in resumable 16 MB pieces,
-// lists what the PC shares and swaps text. No libraries, nothing leaves the Wi-Fi.
+// lists what the PC shares and swaps text, in six languages. No libraries, nothing leaves the Wi-Fi.
 
 const CHUNK = 16 * 1024 * 1024;
 const PARALLEL = 3;
 const $ = (id) => document.getElementById(id);
 
-const T = {
-  en: {
-    connecting: 'Connecting…', connected: 'Connected to {0}', offline: "Can't reach the PC. Is Skiffdrop open?",
-    pairTitle: 'Connect to your PC',
-    pairHelp: 'Scan the QR code in Skiffdrop on your PC, or type the 6-digit code shown under it.',
-    pairKey: 'Tap Connect, then click Allow on your PC.',
-    code: 'Code', pin: 'PIN', connect: 'Connect', waiting: 'Click Allow on your PC…',
-    denied: 'The PC said no.', expired: 'No answer from the PC. Try again.',
-    badCode: "That code didn't work. Scan the QR code again or type the code shown on the PC.",
-    badPin: 'Wrong PIN.', locked: 'Too many tries. Wait a minute and try again.',
-    sendTitle: 'Send to PC', pickMedia: 'Photos & videos', pickFiles: 'Files',
-    sendHelp: 'Any size. Keep this page open until it finishes.',
-    clear: 'Clear', sum: '{0} of {1} sent', fromPc: 'From PC', saveAll: 'Save all (.zip)',
-    emptyPc: 'Drop files on Skiffdrop on your PC and they show up here.',
-    save: 'Save', copy: 'Copy', copied: 'Copied', open: 'Open',
-    textTitle: 'Text or link', textPh: 'Paste a link or type a note…', sendText: 'Send text',
-    textSent: 'Sent to your PC',
-    local: 'Files go straight to your PC over your Wi-Fi. Nothing is uploaded to the internet.',
-    forget: 'Disconnect this phone', forgetAsk: "Disconnect this phone? You'll need to scan the QR code again.",
-    wait: 'Waiting', of: '{0} of {1}', saved: 'Saved on the PC as {0}', failed: 'Failed: {0}',
-    cancelled: 'Cancelled', retrying: 'Connection lost, retrying…',
-    diskFull: 'not enough space on the PC', errNet: 'connection lost', errGone: 'the PC stopped this transfer',
-    errRead: "this phone can't read the file any more",
-    holdPhoto: 'Press and hold the photo, then tap Save to Photos (iPhone) or Download image (Android).',
-    videoHint: 'Tap Save. On iPhone: Files → Downloads → Share → Save Video.',
-    fileHint: 'Tap Save to keep it on this phone.',
-    leave: 'Files are still sending.', newFromPc: 'New from your PC',
-  },
-  ar: {
-    connecting: 'جارٍ الاتصال…', connected: 'متصل بـ {0}', offline: 'تعذّر الوصول إلى الكمبيوتر. هل Skiffdrop مفتوح؟',
-    pairTitle: 'اتصل بالكمبيوتر',
-    pairHelp: 'امسح رمز QR في Skiffdrop على الكمبيوتر، أو اكتب الرمز المكوّن من 6 أرقام الظاهر تحته.',
-    pairKey: 'اضغط «اتصال» ثم اضغط «سماح» على الكمبيوتر.',
-    code: 'الرمز', pin: 'الرقم السري', connect: 'اتصال', waiting: 'اضغط «سماح» على الكمبيوتر…',
-    denied: 'رفض الكمبيوتر الاتصال.', expired: 'لم يصل رد من الكمبيوتر. حاول مرة أخرى.',
-    badCode: 'الرمز غير صحيح. امسح رمز QR من جديد أو اكتب الرمز الظاهر على الكمبيوتر.',
-    badPin: 'الرقم السري غير صحيح.', locked: 'محاولات كثيرة. انتظر دقيقة ثم حاول مرة أخرى.',
-    sendTitle: 'إرسال إلى الكمبيوتر', pickMedia: 'صور وفيديو', pickFiles: 'ملفات',
-    sendHelp: 'أي حجم. أبقِ هذه الصفحة مفتوحة حتى ينتهي الإرسال.',
-    clear: 'مسح', sum: 'أُرسل {0} من {1}', fromPc: 'من الكمبيوتر', saveAll: 'حفظ الكل (zip)',
-    emptyPc: 'اسحب الملفات إلى Skiffdrop على الكمبيوتر وستظهر هنا.',
-    save: 'حفظ', copy: 'نسخ', copied: 'تم النسخ', open: 'فتح',
-    textTitle: 'نص أو رابط', textPh: 'الصق رابطاً أو اكتب ملاحظة…', sendText: 'إرسال النص',
-    textSent: 'تم الإرسال إلى الكمبيوتر',
-    local: 'تنتقل الملفات مباشرة إلى الكمبيوتر عبر شبكة الواي فاي. لا شيء يُرفع إلى الإنترنت.',
-    forget: 'فصل هذا الهاتف', forgetAsk: 'فصل هذا الهاتف؟ ستحتاج إلى مسح رمز QR من جديد.',
-    wait: 'في الانتظار', of: '{0} من {1}', saved: 'حُفظ على الكمبيوتر باسم {0}', failed: 'فشل: {0}',
-    cancelled: 'أُلغي', retrying: 'انقطع الاتصال، إعادة المحاولة…',
-    diskFull: 'لا توجد مساحة كافية على الكمبيوتر', errNet: 'انقطع الاتصال', errGone: 'أوقف الكمبيوتر هذا النقل',
-    errRead: 'تعذّرت قراءة الملف على هذا الهاتف',
-    holdPhoto: 'اضغط مطولاً على الصورة ثم اختر «حفظ في الصور» (آيفون) أو «تنزيل الصورة» (أندرويد).',
-    videoHint: 'اضغط «حفظ». على آيفون: الملفات ← التنزيلات ← مشاركة ← حفظ الفيديو.',
-    fileHint: 'اضغط «حفظ» للاحتفاظ به على هذا الهاتف.',
-    leave: 'ما زالت الملفات قيد الإرسال.', newFromPc: 'جديد من الكمبيوتر',
-  },
-};
+const T = window.SKIFF_I18N;  // from i18n.js
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
 };
-let lang = (store.get('lang') || navigator.language || 'en').toLowerCase().startsWith('ar') ? 'ar' : 'en';
+function pickLang() {
+  const saved = store.get('lang');
+  if (saved && T[saved]) return saved;
+  for (const l of (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'])) {
+    const code = String(l).toLowerCase().split('-')[0];
+    if (T[code]) return code;
+  }
+  return 'en';
+}
+let lang = pickLang();
 
 function t(key, ...args) {
   let s = (T[lang] && T[lang][key]) || T.en[key] || key;
@@ -80,7 +34,9 @@ function applyLang() {
   document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
   document.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
   document.querySelectorAll('[data-tp]').forEach((el) => { el.placeholder = t(el.dataset.tp); });
-  $('lang').textContent = lang === 'ar' ? 'English' : 'العربية';
+  $('lang').value = lang;
+  $('langCode').textContent = lang.toUpperCase();
+  $('lang').setAttribute('aria-label', t('language'));
   setStatus(state.status);
   if (state.view === 'pair') pairText();
   renderPc();
@@ -607,7 +563,13 @@ async function boot() {
 }
 
 function wire() {
-  $('lang').onclick = () => { lang = lang === 'ar' ? 'en' : 'ar'; store.set('lang', lang); applyLang(); };
+  for (const code of Object.keys(T)) {
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = T[code]._name;
+    $('lang').appendChild(o);
+  }
+  $('lang').onchange = () => { lang = $('lang').value; store.set('lang', lang); applyLang(); };
   $('pairForm').onsubmit = (e) => { e.preventDefault(); pair(); };
   $('code').oninput = () => {
     const v = $('code').value.replace(/\D/g, '').slice(0, 6);

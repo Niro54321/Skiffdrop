@@ -5,12 +5,15 @@
 Stop mailing photos to yourself or dropping them in a WhatsApp or Discord chat just to get them onto your PC. Skiffdrop runs a small web server on your PC that only your home network can reach. Your phone opens it in Safari or Chrome, and files go straight from one device to the other.
 
 <p align="center">
-  <img src="docs/pc.png" alt="Skiffdrop on Windows: the QR code, the phones you allowed, files to send and what arrived" width="760">
+  <img src="docs/pc-dark.png" alt="Skiffdrop on Windows at night: the QR code, the code as keycaps, paired devices, the drop area and an empty activity list" width="760">
 </p>
 <p align="center">
-  <img src="docs/phone-send.jpg" alt="The phone page in English: send photos, videos or files to the PC" width="300">
+  <img src="docs/pc-light.png" alt="Skiffdrop on Windows by day: files offered to the phone and a link that arrived" width="760">
+</p>
+<p align="center">
+  <img src="docs/phone-dark.jpg" alt="The phone page in English, dark: send photos, videos or files to the PC" width="300">
   &nbsp;&nbsp;
-  <img src="docs/phone-from-pc-ar.jpg" alt="The phone page in Arabic: files and a link from the PC" width="300">
+  <img src="docs/phone-light-ar.jpg" alt="The phone page in Arabic, light: files and a link from the PC" width="300">
 </p>
 
 ## What it does
@@ -20,8 +23,11 @@ Stop mailing photos to yourself or dropping them in a WhatsApp or Discord chat j
 - **Text and links** both ways. Text from the phone goes straight to the PC's clipboard.
 - **Nothing to install on the phone.** It's a web page served by your PC, so iPhone, iPad, Android and other computers all work.
 - **Big files are fine.** Uploads go in 16 MB pieces, and a lost connection picks up where it stopped. The PC writes every piece straight to disk, so a 4 GB video doesn't use 4 GB of memory.
-- The phone page is in **English and Arabic** and follows the phone's language.
+- **Six languages** on the PC and on the phone: English, العربية, Español, Français, 日本語 and 中文（简体）. Each follows the device's language and can be changed (Arabic runs right to left).
+- **Dark and light**, following Windows and the phone. You can also pick one in Settings.
 - A tray icon keeps it running in the background, and it can start with Windows if you want.
+
+The look is **Harbor Edition**: Harbor Ink and Sail Ivory grounds, brass for the one action that matters, Instrument Serif titles, Manrope text and JetBrains Mono for codes and addresses. The fonts ship with the app, so nothing is fetched from the internet. Arabic, Japanese and Chinese use the device's own font for their script.
 
 ## Install (Windows 10/11)
 
@@ -102,7 +108,7 @@ py -3.11 -m venv .venv
 
 The installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`).
 
-Layout: `skiffdrop/server.py` (HTTP server, pairing, uploads/downloads), `skiffdrop/web/` (the phone page, with no libraries), `skiffdrop/app.py` + `ui.py` (the PySide6 window and tray), `skiffdrop/netutil.py` (network address, firewall rule), `packaging/` (installer).
+Layout: `skiffdrop/server.py` (HTTP server, pairing, uploads/downloads), `skiffdrop/web/` (the phone page, with no libraries, and its `i18n.js`), `skiffdrop/app.py` + `ui.py` + `theme.py` + `i18n.py` (the PySide6 window, tray, palettes and translations), `skiffdrop/netutil.py` (network address, firewall rule), `packaging/` (installer).
 
 ## How is this different from LocalSend?
 
@@ -118,4 +124,4 @@ netsh advfirewall firewall delete rule name="Skiffdrop"
 
 ## License
 
-[MIT](LICENSE) © 2026 Niro54321. The installer also contains Python, Qt 6 / PySide6 (LGPL-3.0) and segno (BSD). See `THIRD-PARTY-NOTICES.txt` in the install folder.
+[MIT](LICENSE) © 2026 Niro54321. The installer also contains Python, Qt 6 / PySide6 (LGPL-3.0) and segno (BSD). The fonts Instrument Serif, Manrope and JetBrains Mono are under the SIL Open Font License 1.1, with their licence files in `skiffdrop/web/fonts`. See `THIRD-PARTY-NOTICES.txt` in the install folder.

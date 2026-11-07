@@ -39,7 +39,10 @@ from .netutil import host_ok, is_lan
 WEB = Path(__file__).with_name("web")
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"), "/index.html": ("index.html", "text/html; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"), "/style.css": ("style.css", "text/css; charset=utf-8"),
-          "/icon.svg": ("icon.svg", "image/svg+xml")}
+          "/icon.svg": ("icon.svg", "image/svg+xml"), "/i18n.js": ("i18n.js", "text/javascript; charset=utf-8"),
+          "/fonts/Manrope-wght.ttf": ("fonts/Manrope-wght.ttf", "font/ttf"),
+          "/fonts/InstrumentSerif-Regular.ttf": ("fonts/InstrumentSerif-Regular.ttf", "font/ttf"),
+          "/fonts/JetBrainsMono-wght.ttf": ("fonts/JetBrainsMono-wght.ttf", "font/ttf")}
 BLOCK = 1 << 20              # bytes per read/write
 MAX_PUT = 64 << 20           # one upload request
 MAX_JSON = 2 << 20           # API bodies (text messages included)
@@ -544,7 +547,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         if length is not None:
             self.send_header("Content-Length", str(length))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", (extra or {}).pop("Cache-Control", "no-store"))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
@@ -680,6 +683,8 @@ class Handler(BaseHTTPRequestHandler):
             name, ctype = STATIC[path]
             body = (WEB / name).read_bytes()
             extra = {"Content-Security-Policy": PAGE_CSP} if name == "index.html" else {}
+            if ctype.startswith("font/"):
+                extra["Cache-Control"] = "max-age=604800"  # fonts never change within a version
         self._headers(200, ctype, len(body), extra)
         if self.command != "HEAD":
             self.wfile.write(body)
