@@ -80,6 +80,8 @@ Skiffdrop is built for a home or office Wi-Fi you trust:
 | **Safe file names** | Names from the phone are cleaned before saving: no folders, no `..`, no reserved Windows names, no hidden right-to-left tricks. Files are only ever written inside your save folder, and an existing file is never overwritten (you get `name (1).jpg`). |
 | **Firewall: private only** | The firewall rule is limited to private networks and to Skiffdrop's own program and port. |
 
+Privacy policy: [PRIVACY.md](PRIVACY.md). Skiffdrop has no account, no analytics and never connects to the internet.
+
 **What it does not do:** the connection is plain HTTP inside your network, like most local devices (printers, routers, smart TVs). A browser treats a home-network address as "not secure" no matter what, and a self-signed HTTPS certificate would show a scary warning on every phone. So use it on your own Wi-Fi, not on hotel or café Wi-Fi.
 
 ## Measured speed
@@ -108,6 +110,8 @@ py -3.11 -m venv .venv
 ```
 
 The installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`).
+
+Microsoft Store package: `packaging\msix.py` builds an MSIX with a firewall rule for private networks only; `store/` has the listing in six languages and the scripts that draw the logos and screenshots.
 
 Layout: `skiffdrop/server.py` (HTTP server, pairing, uploads/downloads), `skiffdrop/web/` (the phone page, with no libraries, and its `i18n.js`), `skiffdrop/app.py` + `ui.py` + `theme.py` + `i18n.py` (the PySide6 window, tray, palettes and translations), `skiffdrop/netutil.py` (network address, firewall rule), `packaging/` (installer).
 

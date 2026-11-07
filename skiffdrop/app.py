@@ -218,7 +218,10 @@ class SettingsDialog(QDialog):
         self.startup.setChecked(startup_enabled())
         self.startup.setEnabled(startup_command() is not None)
         self.startup.toggled.connect(set_startup)
-        c.addWidget(self.startup)
+        if netutil.packaged():  # the Store version starts with Windows through Windows' own list
+            c.addWidget(label(tr("startup_store"), "sub", wrap=True))
+        else:
+            c.addWidget(self.startup)
         g = QHBoxLayout()
         g.addWidget(label(tr("port"), "muted"))
         self.port = QSpinBox()
@@ -238,6 +241,7 @@ class SettingsDialog(QDialog):
         row.addWidget(self.fw, 1)
         b = button(tr("allow_fw"), "", tr("allow_fw_tip"), "shield")
         b.clicked.connect(parent.fix_firewall)
+        b.setVisible(not netutil.packaged())  # the Store package installs its own private-only rule
         row.addWidget(b)
         c.addLayout(row)
         col.addWidget(frame)
@@ -339,7 +343,8 @@ class MainWindow(NativeFrameWindow):
         # ---------------------------------------------------------- left: pairing and devices
         left = QVBoxLayout()
         left.setSpacing(20)
-        frame, c = panel(tr("pair_title"), label(tr("pair_meta"), "meta"))
+        frame, c = panel(tr("pair_title"), label(tr("pair_meta"), "meta"),
+                         stacked=not ui.fits_on_one_line(tr("pair_title"), tr("pair_meta"), 296))
         c.setSpacing(12)
         self.qr = QrCode(212)
         c.addWidget(self.qr, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -363,7 +368,8 @@ class MainWindow(NativeFrameWindow):
         self.pin_note = label(tr("pin_on"), "sub")
         self.pin_note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         c.addWidget(self.pin_note)
-        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        # never squeezed: it may grow when a long title wraps (French, Spanish), the devices list gives way
+        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         left.addWidget(frame)
 
         self.paired_meta = label("", "meta")

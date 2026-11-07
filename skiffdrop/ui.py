@@ -317,14 +317,35 @@ def button(text: str = "", kind: str = "", tip: str = "", icon: str = "", icon_r
     return b
 
 
-def panel(title: str, meta: QWidget | None = None, margins: int = 20) -> tuple[QFrame, QVBoxLayout]:
+def fits_on_one_line(title: str, meta: str, width: int) -> bool:
+    """Whether a panel title (serif) and its note (sans) share one line in this width."""
+    from PySide6.QtGui import QFont, QFontMetrics
+    t = QFont()
+    t.setFamilies([f.strip().strip("'") for f in T.display_family(LANG).split(",")])
+    t.setPixelSize(T.display_size(LANG, 26))
+    m = QFont()
+    m.setFamilies([f.strip().strip("'") for f in T.ui_family(LANG).split(",")])
+    m.setPixelSize(14)
+    return QFontMetrics(t).horizontalAdvance(title) + 16 + QFontMetrics(m).horizontalAdvance(meta) <= width
+
+
+def panel(title: str, meta: QWidget | None = None, margins: int = 20,
+          stacked: bool = False) -> tuple[QFrame, QVBoxLayout]:
     frame = QFrame()
     frame.setObjectName("panel")
     col = QVBoxLayout(frame)
     col.setContentsMargins(margins, 16, margins, margins)
     col.setSpacing(14)
+    if stacked:  # a long title (French, Spanish...) and its note each get their own line
+        head = QVBoxLayout()
+        head.setSpacing(2)
+        head.addWidget(label(title, "title"))
+        if meta is not None:
+            head.addWidget(meta)
+        col.addLayout(head)
+        return frame, col
     head = QHBoxLayout()
-    head.setSpacing(8)
+    head.setSpacing(12)
     head.addWidget(label(title, "title"))
     head.addStretch(1)
     if meta is not None:

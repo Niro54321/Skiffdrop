@@ -202,8 +202,20 @@ def network_profile(if_index: int) -> tuple[str, str]:
 RULE = "Skiffdrop"
 
 
+def packaged() -> bool:
+    """True when running as the Microsoft Store (MSIX) package."""
+    try:
+        length = ctypes.c_uint32(0)
+        return ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(length), None) == 122  # buffer too small
+    except (OSError, AttributeError):
+        return False
+
+
 def firewall_rule_exists() -> bool:
-    """True when an inbound allow rule named Skiffdrop exists (reading rules needs no admin)."""
+    """True when an inbound allow rule named Skiffdrop exists (reading rules needs no admin).
+    The Store package brings its own rule (private networks only), declared in its manifest."""
+    if packaged():
+        return True
     try:
         out = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule", f"name={RULE}", "dir=in"],
                              capture_output=True, text=True, timeout=15, creationflags=NO_WINDOW)
