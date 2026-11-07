@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skiffdrop"
+version = "1.0.0"
+description = "Send files between your phone and your Windows PC over Wi-Fi: scan a QR code, nothing to install on the phone."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6-Essentials>=6.7",
+    "segno>=1.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pyflakes", "pyinstaller", "requests"]
+
+[project.gui-scripts]
+skiffdrop = "skiffdrop.app:main"
+
+[tool.setuptools.packages.find]
+include = ["skiffdrop*"]
+
+[tool.setuptools.package-data]
+skiffdrop = ["web/*"]
