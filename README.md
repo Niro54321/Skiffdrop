@@ -5,6 +5,14 @@
 Stop mailing photos to yourself or dropping them in a WhatsApp or Discord chat just to get them onto your PC. Skiffdrop runs a small web server on your PC that only your home network can reach. Your phone opens it in Safari or Chrome, and files go straight from one device to the other.
 
 <p align="center">
+  <a href="https://github.com/Niro54321/Skiffdrop/releases/download/v1.0.0/Skiffdrop-trailer-en.mp4">
+    <img src="docs/trailer-preview.gif" alt="From the trailer: the phone connects with the code already filled in, Allow is clicked on the PC, and photos and a video arrive with their progress on both screens" width="800">
+  </a>
+  <br>
+  <a href="https://github.com/Niro54321/Skiffdrop/releases/download/v1.0.0/Skiffdrop-trailer-en.mp4">Watch the full trailer</a> (53 seconds, MP4)
+</p>
+
+<p align="center">
   <img src="docs/pc-dark.png" alt="Skiffdrop on Windows at night: the QR code, the code as keycaps, paired devices, files to send, and the Messages and Files lists" width="760">
 </p>
 <p align="center">
